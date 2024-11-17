@@ -35,19 +35,6 @@
       nodeClick: {name: 'Node click', role: 'opens the article in a new tab'},
       nodeHover: {name: 'Node hover', role: 'shows the article preview in a small popup'},
     },
-    ru: {
-      descShort: "граф клиент для Википедии",
-      desc: "Wiki Graph принимает запрос и проходит на два шага вперед, чтобы показать более полную картину поиска. Так можно увидеть смежные темы и связи между ними.",
-      descTechnical: "Начиная с выбранной вики статьи, алгоритм собирает топ 20 смежных статей, потом для каждой из них собирает ее топ 20 и наконец рисует граф из всего, что найдено.",
-      inspiredBy: "Работа вдохновлена проектом",
-      checkOut: " и основана на его движке",
-      enjoy: "Ну все, развлекайтесь и ботайте",
-
-      node: {name: 'Узел', role: 'это вики-статья'},
-      edge: {name: 'Ребро', role: 'показывает связь между двумя статьями'},
-      nodeClick: {name: 'Клик по узелу', role: 'открывает статью в новой вкладке'},
-      nodeHover: {name: 'Наведение на узел', role: 'показывает превьюшку статьи'},
-    },
   }
 
   function handleEsc(e: KeyboardEvent) {
@@ -73,13 +60,13 @@
         <p>{text[currentLang].descTechnical}</p>
   
         <div class="inspiration">
-          {text[currentLang].inspiredBy} <span> anvaka's <a href="https://anvaka.github.io/vs/?query=" target="_blank" rel="noopener noreferrer">vs-autocomplete</a>{text[currentLang].checkOut}.</span>
+          {text[currentLang].inspiredBy} <span> blinpete <a href="https://github.com/blinpete" target="_blank" rel="noopener noreferrer">blinpete</a>{text[currentLang].checkOut}.</span>
         </div>
   
         <p class="p-last footnote">
           {text[currentLang].enjoy},<br>
           <code>
-            <a href="https://github.com/blinpete" target="_blank" rel="noopener noreferrer">blinpete</a>
+            <a href="https://github.com/souzadevinicius" target="_blank" rel="noopener noreferrer">Vinícius de Souza</a>
           </code>
         </p>
 

@@ -2,6 +2,7 @@
   // https://www.wikipedia.org
 
   import {appState, watchState} from "./state";
+  import { queryStore } from './store';
 
   let query: string = appState.query;
 
@@ -19,6 +20,13 @@
     console.log("[search] query:", query);
     dispatch('search', query)
     // await apiClient.page(query);
+  }
+
+  $: query = $queryStore;
+  $: {
+    if ($queryStore){
+      dispatch('search', $queryStore)
+    }
   }
 
   async function onKeyup(e: KeyboardEvent) {

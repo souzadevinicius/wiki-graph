@@ -2,7 +2,7 @@
 
 A graph view for [Wikipedia](https://www.wikipedia.org/). This is heavily based on [vs](https://github.com/anvaka/vs).
 
-Try it [here](https://blinpete.github.io/wiki-graph/?lang=en&query=Erwin%20Schr%C3%B6dinger).
+Try it [here](https://souzadevinicius.github.io/wiki-graph/?lang=pt&query=Corinthians).
 
 Read more in [this post on Reddit](https://www.reddit.com/r/dataisbeautiful/comments/10tj7cq/graph_view_for_wikipedia_articles_details_in_the/).
 
@@ -20,4 +20,4 @@ Note on APIs:
 
 ## License
 
-[MIT](./LICENSE) License © 2022 [Peter Blinov](https://github.com/blinpete)
+[MIT](./LICENSE) License © 2024 [Vinícius de Souza](https://github.com/souzadevinicius)

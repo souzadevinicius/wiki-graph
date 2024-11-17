@@ -98,3 +98,18 @@ dd {
 *::-webkit-scrollbar-button {
   height: 0;
 }
+
+
+.iframe-container {
+  position: relative;
+  float: right;
+  width: 25%;
+  height: 100vh; /* Set the height to full viewport height */
+}
+
+
+.iframe-container iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}

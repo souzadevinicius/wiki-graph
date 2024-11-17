@@ -75,7 +75,21 @@ export default function createLinkAnimator(graph, layout, edgeContainer) {
     }
     return api;
 
+    
     function step() {
+      const defs = svg('defs');
+      const marker = svg('marker', {
+        id: 'arrowhead',
+        markerWidth: 8,    // Reduced from 15 to 8
+        markerHeight: 6,   // Reduced from 7 to 6
+        refX: 10,           // Adjusted to match the new markerWidth
+        refY: 3,           // Adjusted to half of the new markerHeight
+        orient: 'auto'
+      });
+      const polygon = svg('polygon', {
+        points: '0 0, 8 3, 0 6',  // Adjusted to match new dimensions
+        fill: 'inherit'  // This allows the arrowhead to match the path color
+      });
       let t = ease(frame / maxT);
       let x = from.x * (1 - t) + to.x * t;
       let y = from.y * (1 - t) + to.y * t;
@@ -88,8 +102,13 @@ export default function createLinkAnimator(graph, layout, edgeContainer) {
           'stroke-width': strokeWidth,
           fill: 'black',
           stroke: `rgb(${color}, ${color}, ${color})`,
+          "marker-end":"url(#arrowhead)",
           d: pathData
         });
+        
+        marker.appendChild(polygon);
+        defs.appendChild(marker);
+        edgeContainer.appendChild(defs);
         edgeContainer.appendChild(ui);
 
         links.set(link.id, { ui, link });

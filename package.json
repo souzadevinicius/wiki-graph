@@ -1,9 +1,10 @@
 {
   "name": "wiki-graph",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
-  "homepage": "https://blinpete.github.io/wiki-graph",
+  "homepage": "https://souzadevinicius.github.io/wiki-graph",
+  "author": "Vinicius de Souza",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

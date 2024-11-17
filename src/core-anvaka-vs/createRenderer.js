@@ -75,13 +75,13 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
   function onSceneClick(e) {
     console.log("🚀 | onSceneClick | e", e);
 
-    removeHighlight()
+    // removeHighlight()
 
-    // hiding the suggestion dropdown
-    svgEl.focus();
+    // // hiding the suggestion dropdown
+    // svgEl.focus();
 
-    // hiding the tooltip
-    onLeaveNode(e);
+    // // hiding the tooltip
+    // onLeaveNode(e);
 
     // let info = findLinkInfoFromEvent(e);
     // if (info) {
@@ -386,6 +386,12 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
     bus.fire("show-details-node", { node, ui, text });
   }
 
+
+  function onNodeDoubleClick(e, node, ui, text) {
+    // console.log("🚀 ~ onNodeClick ~ e, node", e, node);
+    bus.fire("show-iframe-node", { node, ui, text });
+  }
+
   function onLeaveNode(e, node) {
     // console.log("🚀 ~ onLeaveNode ~ node", node);
     // removeHighlight();
@@ -405,8 +411,8 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
     if (node.links?.length) {
       node.links.forEach((link) => {
         // console.log("🚀 ~ onHoverNode ~ link", link);
-        const linkObj = linkAnimator.getLinkInfo(link.id);
-        addHoveredClass(linkObj.ui);
+        const linkObj = linkAnimator?.getLinkInfo(link.id);
+        addHoveredClass(linkObj?.ui);
 
         const linkedId = link.fromId !== node.id ? link.fromId : link.toId;
         const linkedNode = nodes.get(linkedId);
@@ -415,7 +421,7 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
     }
 
     function addHoveredClass(htmlEl) {
-      htmlEl.classList.add("hovered");
+      htmlEl?.classList?.add("hovered");
     }
 
     // tooltip

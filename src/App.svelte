@@ -1,18 +1,18 @@
 <script lang="ts">
   import WikiSearch from "./lib/WikiSearch.svelte";
-
+  import { onMount } from 'svelte';
   import { bus, createRenderer } from "./core-anvaka-vs";
   import { appState, performSearch } from "./lib/state";
   import { apiClient, isMobile } from "./lib/apiClient";
+  import { queryStore } from './lib/store';
+
   import About from "./lib/About.svelte";
 
   import { Confetti } from "svelte-confetti";
-  import AboutWordle from "./lib/AboutWordle.svelte";
   let showConfetti = false
   let showConfettiContainer = false
 
   let aboutVisible = false;
-  let aboutWordleVisible = false;
 
   // console.log('[App] appState:', appState)
 
@@ -33,43 +33,51 @@
   apiClient.setLang(appState.lang || DEFAULT_LANG);
   // ---------------------------------------------------
 
-  function wordlePlaceholder(node) {
-    // return '...'
-    return node.id.replaceAll(/[^\n\s]/g,  '-')
-    
+  
+  
+  let iframe;
+  let iframeUrl = '';
+
+  function setupIframeListener(iframe, callback) {
+    const messageHandler = (event) => {
+      // Verify the sender's origin for security
+      // if (event.origin !== 'https://iframe-origin.com') return;
+
+        callback(event?.data?.subFrameData?.url);
+    };
+
+    window.addEventListener('message', messageHandler);
+
+    // Clean up the event listener when the component is destroyed
+    return () => {
+      window.removeEventListener('message', messageHandler);
+    };
   }
 
-  function isWordleOn() {
-    return appState.wordle.toString().includes('true')
-  }
+  onMount(() => {
+    if (iframe) {
+      const iframeChange = setupIframeListener(iframe, (newUrl) => {
+        iframeUrl = newUrl;
+        const lastpath = decodeURIComponent(iframeUrl.split('/').filter(Boolean).pop() || '/')
+        queryStore.set(lastpath);
+      });
 
+      return iframeChange;
+    }
+  });
+
+  
   /**
    * this funciton garantees that hidden
    * nodes don't flash on first render
    **/
   function getText(node) {
     console.log("🚀 | getText | node", node)
-    
-    const ids = getWordleIdsSet()
-    
-    if (isWordleOn() && ids.has(node?.data?.pageid?.toString())) {
-      return wordlePlaceholder(node)
-    }
-
     return node.id
   }
 
-  function wordleAddNodeHook(node, ui, text) {
-    // if (!isWordleOn()) return
-    
-    const ids = getWordleIdsSet()
 
-    if(ids.has(node?.data?.pageid?.toString())) {
-      wordleNodes.set(node.data.pageid, {node, ui, text})
-    }
-  }
-
-  const renderer = createRenderer(appState.progress, isMobile, getText, wordleAddNodeHook);
+  const renderer = createRenderer(appState.progress, isMobile, getText);
 
   if (appState.query) {
     performSearchWrap(appState.query).then((res) => {
@@ -79,34 +87,6 @@
     });
   }
 
-  function dropWordleIds() {
-    wordleNodes.forEach(obj => {
-      obj.text.text(obj.node.id)
-    })
-    wordleNodes.clear()
-    appState.wordle = true
-  }
-
-  function toggleWordleMode() {
-    const ids = getWordleIdsSet()
-
-    if (ids.has('true')) {
-      ids.delete('true')
-      ids.add('false')
-
-      wordleNodes.forEach(obj => {
-        obj.text.text(obj.node.id)
-      })
-    } else {
-      ids.delete('false')
-      ids.add('true')
-
-      wordleNodes.forEach(obj => {
-        obj.text.text(wordlePlaceholder(obj.node))
-      })
-    }
-    appState.wordle = [...ids].join(wordleIdSep)
-  }
 
   // ------------------------------------------ tooltip
   let isTooltipHidden = true;
@@ -153,10 +133,6 @@
   function showTooltipNode(e) {
     console.log("🚀 ~ showTooltipNode ~ e", e)
     // console.log("🚀 ~ showTooltipNode ~ e", visualViewport)
-
-    if (isWordleOn() && appState.wordle.toString().includes(e.node?.data?.pageid?.toString())) {
-      return  
-    }
 
     clearTimeout(hidingTimer);
 
@@ -209,14 +185,16 @@
       left = Math.max(10, left);
       left = Math.min(visualViewport.width - ttWidth - 10, left);
 
-      tooltipEl.style.left = left + "px";
+      if (tooltipEl){
+        tooltipEl.style.left = left + "px";
 
-      if (isUp) {
-        tooltipEl.style.top = "unset";
-        tooltipEl.style.bottom = visualViewport.height - e.y + 20 + "px";
-      } else {
-        tooltipEl.style.top = e.y + 20 + "px";
-        tooltipEl.style.bottom = "unset";
+        if (isUp) {
+          tooltipEl.style.top = "unset";
+          tooltipEl.style.bottom = visualViewport.height - e.y + 20 + "px";
+        } else {
+          tooltipEl.style.top = e.y + 20 + "px";
+          tooltipEl.style.bottom = "unset";
+        }
       }
 
       // ---------------- test: static corner
@@ -230,63 +208,15 @@
 
   bus.on("show-tooltip-node", showTooltipNode, {});
 
-  const wordleIdSep = '-'
-  function getWordleIdsSet() {
-    return new Set(appState.wordle.toString().split(wordleIdSep))
-  }
-  function toggleWordleId(id: number | string) {
-    const ids = getWordleIdsSet()
-    console.log("🚀 | toggleWordleId | ids", ids)
-
-    const str = id.toString()
-    const deleted = ids.delete(str)
-
-    if (!deleted) {
-      ids.add(str)
-    }
-
-    appState.wordle = [...ids].join(wordleIdSep)
-
-    if (appState.wordle === 'true') {
-      showConfetti = true
-      showConfettiContainer = true
-
-      setTimeout(() => {
-        showConfetti = false
-        if (isWordleOn()) toggleWordleMode()
-      }, 4500)
-      setTimeout(() => {
-        showConfettiContainer = false
-      }, 6000)
-    }
-
-    return !deleted
-  }
-
-  const wordleNodes = new Map()
-
   // --------------------------------------- node click
   function onNodeClick(e) {
     console.log("🚀 ~ onNodeClick ~ e", e)
-
-    if (!isWordleOn()) {
-      window.open(e.node.data.page_url);
-    }
-    else {
-      console.log("🚀 | onNodeClick | e.node.data", e.node.data)
-      const isIdSelected = toggleWordleId(e.node.data.pageid)
-      
-      if (isIdSelected) {
-        e.text.text(wordlePlaceholder(e.node))
-        wordleNodes.set(e.node.data.pageid, e)
-      } else {
-        e.text.text(e.node.id)
-        wordleNodes.delete(e.node.data.pageid)
-      }
-    }
+    // window.open(e.node.data.page_url);
+    appState.query = e.node.id;
+    queryStore.set(appState.query);
+  }
 
     // window.open(e.node.data.page_url, '_blank')
-  }
 
   bus.on("show-details-node", onNodeClick, {});
 
@@ -313,19 +243,23 @@
     // console.log('[summary]', summary);
 
     const entryItem = apiClient.getItem(summary);
+    iframe.src = entryItem?.data?.page_url;
     performSearch(entryItem);
   }
 </script>
 
 <!-- <main class="app-container"> -->
-{#if !appState.wordle.toString().includes('true')}
-  <WikiSearch on:search={onSearch} />
+<WikiSearch on:search={onSearch} />
 
-  {:else}
-  <div style="display: flex; width: fit-content; opacity: 0.7; font-weight: 500; padding: 0.7em 1em;">
-    Wordle mode
-  </div>
-{/if}
+
+<div class="iframe-container">
+  <iframe 
+  bind:this={iframe}
+  title="Embedded Content"
+  width="100%"
+></iframe>
+</div>
+
 
 {#if showConfettiContainer}
 <div 
@@ -360,14 +294,9 @@
 {/if}
 
 <div class="layout-container about-links muted">
-  {#if appState.wordle.toString().includes('true')}
-    <a href="#" on:click={() => (aboutWordleVisible = true)}>What is this?</a>
-    <a href="#" on:click={dropWordleIds}>drop wordles</a>
-  {/if}
-  <a href="#" on:click={toggleWordleMode}>{'wordle ' + (appState.wordle.toString().includes('true') ? 'on' : 'off')}</a>
   <a href="#" on:click={() => (aboutVisible = true)}>about</a>
   <a
-    href="https://github.com/blinpete/wiki-graph"
+    href="https://github.com/souzadevinicius/wiki-graph"
     target="_blank"
     rel="noopener noreferrer">code</a
   >
@@ -386,10 +315,6 @@
 
 {#if aboutVisible}
   <About on:hide={() => (aboutVisible = false)} />
-{/if}
-
-{#if aboutWordleVisible}
-  <AboutWordle on:hide={() => (aboutWordleVisible = false)} />
 {/if}
 
 <style lang="postcss">
