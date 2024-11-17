@@ -57,7 +57,6 @@
     if (iframe) {
         iframe.onload = () => {
           const iframeChange = setupIframeListener(iframe, (newUrl) => {
-              alert('crre')
                 iframeUrl = newUrl;
                 const lastpath = decodeURIComponent(iframeUrl.split('/').filter(Boolean).pop() || '/');
                 queryStore.set(lastpath);
