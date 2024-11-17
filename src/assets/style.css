@@ -100,15 +100,28 @@ dd {
 }
 
 
-.iframe-container {
-  position: relative;
-  float: right;
-  width: 25%;
-  height: 100vh; /* Set the height to full viewport height */
+.parent-container {
+  display: flex; /* Use flexbox for layout */
+  flex-direction: row; /* Align children in a row */
+  width: 100%; /* Full width */
+  height: 100vh; /* Full viewport height */
 }
 
+#graphtest {
+  width: 60%;
+}
+
+.iframe-container {
+  position: relative;
+  width: 40%;
+  float:right;
+  height: 100%; /* Full height of the parent */
+}
 
 .iframe-container iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   border: none;

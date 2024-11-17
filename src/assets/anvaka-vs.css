@@ -28,11 +28,11 @@ svg {
   cursor: pointer;
 }
 
-#nodes rect {
+#nodes circle {
   fill: hsl(0, 10%, 98%);
 }
 
-#nodes > g.hovered > rect,
+#nodes > g.hovered > circle,
 #edges > path.link-ui.hovered {
   stroke: var(--c-accent);
   fill: var(--c-secondary);

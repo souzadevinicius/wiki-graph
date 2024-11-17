@@ -27,5 +27,25 @@
       margin-bottom: 0.2em;
     }
   }
-  
+  @media (max-width: 768px) {
+    .parent-container {
+      flex-direction: column; /* Stack items vertically on small screens */
+      height: auto; /* Allow height to adjust based on content */
+    }
+
+    #graphtest {
+      flex: none; /* Reset flex properties */
+      width: 50%; /* Full width on mobile */
+      order: 1; /* Change order if necessary */
+      margin-bottom: 20px; /* Add spacing below */
+    }
+
+    .iframe-container {
+      flex: none; /* Reset flex properties */
+      width: 50%; /* Full width on mobile */
+      height: auto; /* Adjust height as needed */
+      order: 2; /* Change order if necessary */
+      margin-top: 20px; /* Add spacing above */
+    }
+  }
 }

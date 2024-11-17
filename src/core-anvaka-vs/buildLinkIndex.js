@@ -22,12 +22,13 @@ export default function buildLinkIndex(graph, layout, maxDistance = 42) {
     getPoints() { return points; }
   };
 
-  function findNearestLink(x, y) {
+  function findNearestLink(x, y, md) {
+    md = md || maxDistance
     const neighborIds = pointIndex.neighbors(x, y, 1);
     let pointId = neighborIds[0];
     if (pointId === undefined) return;
     let point = points[pointId];
-    if (distance({x,y}, point) < maxDistance) return point.link;
+    if (distance({x,y}, point) < md) return point.link;
   }
 
   function createInternalIndex() {

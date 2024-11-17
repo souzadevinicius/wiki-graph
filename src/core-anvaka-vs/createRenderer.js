@@ -29,7 +29,7 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
       return false;
     },
   });
-  const defaultRectangle = { left: -500, right: 500, top: -500, bottom: 500 };
+  const defaultRectangle = { left: -1750, right: 1750, top: -1750, bottom: 1750 };
   panzoom.showRectangle(defaultRectangle);
 
   // maps node id to node ui
@@ -209,7 +209,7 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
   }
 
   function addNode(node) {
-    const dRatio = (graph.maxDepth - node.data.depth) / graph.maxDepth;
+    const dRatio = (graph.maxDepth - node.data.depth) / (graph.maxDepth);
     let pos = getNodePosition(node.id);
     if (node.data.depth === 0) {
       layout.pinNode(node);
@@ -219,15 +219,21 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
     layout.addNode(node.id, uiAttributes);
 
     const rectAttributes = {
-      x: uiAttributes.x,
-      y: uiAttributes.y,
-      width: uiAttributes.width,
-      height: uiAttributes.height,
-      rx: uiAttributes.rx,
-      ry: uiAttributes.ry,
+      // x: uiAttributes.x,
+      // y: uiAttributes.y,
+      // width: uiAttributes.width,
+      // height: uiAttributes.height,
+      // rx: uiAttributes.rx,
+      // ry: uiAttributes.ry,
+      // fill: "white",
+      // "stroke-width": uiAttributes.strokeWidth,
+      // stroke: "#58585A",
+      cx: uiAttributes.x + uiAttributes.width / 2, // Center x-coordinate
+      cy: uiAttributes.y + uiAttributes.height / 2, // Center y-coordinate
+      r: Math.min(uiAttributes.width, uiAttributes.height), // Radius
       fill: "white",
-      "stroke-width": uiAttributes.strokeWidth,
       stroke: "#58585A",
+      strokeWidth: uiAttributes.strokeWidth,
     };
     const textAttributes = {
       "font-size": uiAttributes.fontSize,
@@ -235,7 +241,7 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
       y: uiAttributes.py,
     };
 
-    const rect = svg("rect", rectAttributes);
+    const rect = svg("circle", rectAttributes);
     const text = svg("text", textAttributes);
     // text.text(' ' || node.id);
     text.text(getText(node));
@@ -394,7 +400,7 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
 
   function onLeaveNode(e, node) {
     // console.log("🚀 ~ onLeaveNode ~ node", node);
-    // removeHighlight();
+    removeHighlight();
 
     // tooltip
     bus.fire("show-tooltip-node", { node: null });

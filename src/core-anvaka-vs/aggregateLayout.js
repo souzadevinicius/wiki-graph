@@ -156,12 +156,13 @@ export default function createAggregateLayout(graph, progress) {
 
   function createPhysicsLayout() {
     return createLayout(graph, {
-      springLength: 20,
-      springCoeff: 0.002,
-      gravity: -1.2,
+      timeStep: 10,
+      dimensions: 2,
+      gravity: -5,
       theta: 0.8,
-      dragCoeff: 0.02,
-      timeStep: 14,
+      springLength: 20, // Increase this value to space nodes further apart
+      springCoeff: 0.01, // Lowering this can reduce the attraction between nodes
+      dragCoeff: 0.9,
       nodeMass(nodeId) {
         let links = graph.getLinks(nodeId);
         let mul = links ? links.length : 1;

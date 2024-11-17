@@ -5,7 +5,7 @@
   import { appState, performSearch } from "./lib/state";
   import { apiClient, isMobile } from "./lib/apiClient";
   import { queryStore } from './lib/store';
-
+  
   import About from "./lib/About.svelte";
 
   import { Confetti } from "svelte-confetti";
@@ -35,37 +35,37 @@
 
   
   
+
   let iframe;
   let iframeUrl = '';
 
+
   function setupIframeListener(iframe, callback) {
+
     const messageHandler = (event) => {
       // Verify the sender's origin for security
-      // if (event.origin !== 'https://iframe-origin.com') return;
-
-        callback(event?.data?.subFrameData?.url);
+      if (!event.origin.includes("wikipedia.org")) return;
+      callback(event?.data?.subFrameData?.url);
     };
-
     window.addEventListener('message', messageHandler);
-
-    // Clean up the event listener when the component is destroyed
     return () => {
-      window.removeEventListener('message', messageHandler);
-    };
+        window.removeEventListener('message', messageHandler);
+      };
   }
 
   onMount(() => {
     if (iframe) {
-      const iframeChange = setupIframeListener(iframe, (newUrl) => {
-        iframeUrl = newUrl;
-        const lastpath = decodeURIComponent(iframeUrl.split('/').filter(Boolean).pop() || '/')
-        queryStore.set(lastpath);
-      });
-
-      return iframeChange;
+        iframe.onload = () => {
+          const iframeChange = setupIframeListener(iframe, (newUrl) => {
+              alert('crre')
+                iframeUrl = newUrl;
+                const lastpath = decodeURIComponent(iframeUrl.split('/').filter(Boolean).pop() || '/');
+                queryStore.set(lastpath);
+            });
+            return iframeChange;
+        };
     }
   });
-
   
   /**
    * this funciton garantees that hidden
@@ -243,9 +243,11 @@
     // console.log('[summary]', summary);
 
     const entryItem = apiClient.getItem(summary);
+    // iframe.src = 'https://ge.globo.com';
     iframe.src = entryItem?.data?.page_url;
     performSearch(entryItem);
   }
+
 </script>
 
 <!-- <main class="app-container"> -->
