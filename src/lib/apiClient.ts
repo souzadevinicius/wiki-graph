@@ -130,39 +130,53 @@ async function getSummary(query: string) {
 }
 
 async function getResponse(query: string) {
-  const endpoint = RestApiBase() + '/page/related/' + query
-  const related: relatedResult = await (await fetch(endpoint)).json();
-
-  return related.pages;
+  // Using MediaWiki action API to get pages that link to the given page
+  // The /page/related/ REST endpoint has been decommissioned
+  // Reference: https://phabricator.wikimedia.org/T376297
+  const endpoint = `https://${restApiLang}.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(query)}&prop=linkshere&lhlimit=20&lhnamespace=0&format=json&origin=*`;
+  
+  const response = await fetch(endpoint);
+  const data = await response.json();
+  
+  if (!data.query || !data.query.pages) {
+    return [];
+  }
+  
+  const pages = Object.values(data.query.pages) as any[];
+  if (!pages[0] || !pages[0].linkshere) {
+    return [];
+  }
+  
+  // Fetch additional data (extract, thumbnail) for each linked page
+  const linkedTitles = pages[0].linkshere.map((p: any) => p.title).join('|');
+  const detailsEndpoint = `https://${restApiLang}.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(linkedTitles)}&prop=pageimages|extracts&pithumbsize=250&exintro=true&explaintext=false&format=json&origin=*`;
+  
+  const detailsResponse = await fetch(detailsEndpoint);
+  const detailsData = await detailsResponse.json();
+  
+  return Object.values(detailsData.query.pages || {}) as any[];
 }
 
-function getItem(item: relatedResult["pages"][number]) {
-  // TODO: replace with titles.display?
-  // return item.titles.normalized;
-
-  const {
-    description,
-    pageid,
-    extract_html,
-    originalimage,
-    thumbnail,
-    content_urls,
-  } = item;
-
-  const page_url = isMobile
-    ? content_urls.mobile.page
-    : content_urls.desktop.page;
-
+function getItem(item: any) {
+  // Handle action API format (linkshere results include extract and thumbnail)
+  const pageid = item.pageid;
+  const title = item.title || '';
+  const extract_html = item.extract || '';
+  const thumbnail = item.thumbnail?.source || null;
+  
+  // Construct page URL from title
+  const page_url = `https://${restApiLang}.wikipedia.org/wiki/${encodeURIComponent(title)}`;
+  
   const data = {
-    description,
+    description: item.description || '',
     pageid,
     extract_html,
-    originalimage,
+    originalimage: null,
     thumbnail,
     page_url,
   };
 
-  return { id: item.titles.normalized, data };
+  return { id: title, data };
 }
 
 // ------------------------------------------------------------ //
