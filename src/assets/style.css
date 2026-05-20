@@ -10,9 +10,8 @@
 
   font-size: 100%;
 
-  /* hsl(207deg 5% 35%) */
-  --textColor: hsl(220, 10%, 45%);
-  --textColorMuted: hsl(220, 5%, 50%);
+  --textColor: hsl(220, 12%, 28%);
+  --textColorMuted: hsl(220, 6%, 48%);
   --borderColor: hsl(220, 10%, 88%);
   /* --borderColor: hsl(0deg 2% 86%); */
 
@@ -23,9 +22,9 @@
   --c-accent-soft: hsl(220, 50%, 80%);
   --c-secondary: hsl(220, 55%, 75%); */
 
-  --c-accent: hsl(342, 44%, 63%);
-  --c-accent-soft: hsl(344, 50%, 80%);
-  --c-secondary: hsl(342, 39%, 72%);
+  --c-accent:  #2b6cb0; /* nicer blue */
+  --c-accent-soft: #dbeafe;
+  --c-secondary: #7aa7d9;
 }
 
 #app {
@@ -37,11 +36,17 @@
   left: 0;
   right: 0;
 
-  background-color: hsl(0, 33%, 98%);
+  background: linear-gradient(180deg, #ffffff 0%, hsl(210 30% 98%) 100%);
 }
 
 .layout-container {
-  margin: 0.8em;
+  margin: 1rem auto;
+  max-width: 1100px;
+  padding: 0 1rem;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
 }
 
 .muted {
@@ -101,21 +106,36 @@ dd {
 
 
 .parent-container {
-  display: flex; /* Use flexbox for layout */
-  flex-direction: row; /* Align children in a row */
-  width: 100%; /* Full width */
-  height: 100vh; /* Full viewport height */
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: calc(100vh - 6rem);
+  gap: 1rem;
 }
 
+#graphtest-wrapper {
+  flex: 1 1 60%;
+  min-width: 320px;
+  height: 100%;
+}
+
+/* Ensure the SVG graph sits above the embedded iframe and fills its area */
 #graphtest {
-  width: 60%;
+  flex: 1 1 60%;
+  min-width: 320px;
+  position: relative;
+  z-index: 40;
+  pointer-events: auto;
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .iframe-container {
   position: relative;
-  width: 40%;
-  float:right;
-  height: 100%; /* Full height of the parent */
+  flex: 0 0 35%;
+  height: 100%;
+  min-width: 260px;
 }
 
 .iframe-container iframe {
@@ -125,4 +145,12 @@ dd {
   width: 100%;
   height: 100%;
   border: none;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(37, 73, 115, 0.08);
+}
+
+/* keep iframe under the graph */
+.iframe-container,
+.iframe-container iframe {
+  z-index: 10;
 }

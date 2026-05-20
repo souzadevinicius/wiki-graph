@@ -35,6 +35,19 @@
       nodeClick: {name: 'Node click', role: 'opens the article in a new tab'},
       nodeHover: {name: 'Node hover', role: 'shows the article preview in a small popup'},
     },
+    ru: {
+      descShort: "клиент графа для Википедии",
+      desc: "Wiki Graph получает ваш запрос и делает ещё два шага, чтобы показать большую картину того, что вы ищете. Таким образом вы можете увидеть связанные темы и связи между ними.",
+      descTechnical: "Он начинается со статьи в вики, которую вы укажете, собирает топ-20 связанных статей, затем для каждой собирает их топ-20 и, наконец, рисует граф всех найденных элементов.",
+      inspiredBy: "This was heavily inspired by",
+      checkOut: " so check out his project",
+      enjoy: "Наслаждайтесь погружением в знания",
+
+      node: {name: 'Node', role: 'represents a wiki article'},
+      edge: {name: 'Edge', role: 'represents a relation between two articles'},
+      nodeClick: {name: 'Node click', role: 'opens the article in a new tab'},
+      nodeHover: {name: 'Node hover', role: 'shows the article preview in a small popup'},
+    },
   }
 
   function handleEsc(e: KeyboardEvent) {
@@ -159,7 +172,7 @@
   }
 
 
-  .footer, .p-last {
+  .p-last {
     margin-top: 2.5em;
   }
 
