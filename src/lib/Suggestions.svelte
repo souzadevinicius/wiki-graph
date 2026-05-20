@@ -34,7 +34,6 @@
     top: 100%;
 
     background-color: #fff;
-    z-index: 111;
 
     border: 2px solid var(--borderColor);
     border-top: 0;

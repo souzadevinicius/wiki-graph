@@ -42,7 +42,6 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
     linkAnimator;
   let textMeasure = createTextMeasure(scene);
   bus.on("graph-ready", onGraphReady);
-  bus.on("filter", onFilter);
 
   return {
     render,
@@ -52,7 +51,6 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
   function dispose() {
     clearLastScene();
     bus.off("graph-ready", onGraphReady);
-    bus.off("filter", onFilter);
   }
 
   function onMouseMove(e) {
@@ -469,61 +467,5 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
 
   function getNodePosition(nodeId) {
     return layout.getNodePosition(nodeId);
-  }
-
-  function onFilter(query) {
-    if (!graph) return;
-    const q = (query || "").toLowerCase().trim();
-
-    // no query -> reset styles
-    if (!q) {
-      nodes.forEach((ui) => {
-        ui.classList && ui.classList.remove("dimmed");
-        ui.classList && ui.classList.remove("matched");
-      });
-      if (linkAnimator) {
-        graph.forEachLink((link) => {
-          const info = linkAnimator.getLinkInfo(link.id);
-          if (info && info.ui && info.ui.classList) {
-            info.ui.classList.remove("dimmed");
-            info.ui.classList.remove("matched");
-          }
-        });
-      }
-      return;
-    }
-
-    const matched = new Set();
-    graph.forEachNode((node) => {
-      if ((node.id || "").toLowerCase().includes(q)) matched.add(node.id);
-    });
-
-    // nodes
-    nodes.forEach((ui, id) => {
-      if (matched.has(id)) {
-        ui.classList && ui.classList.remove("dimmed");
-        ui.classList && ui.classList.add("matched");
-      } else {
-        ui.classList && ui.classList.add("dimmed");
-        ui.classList && ui.classList.remove("matched");
-      }
-    });
-
-    // links
-    if (linkAnimator) {
-      graph.forEachLink((link) => {
-        const keep = matched.has(link.fromId) || matched.has(link.toId);
-        const info = linkAnimator.getLinkInfo(link.id);
-        if (info && info.ui && info.ui.classList) {
-          if (keep) {
-            info.ui.classList.remove("dimmed");
-            info.ui.classList.add("matched");
-          } else {
-            info.ui.classList.add("dimmed");
-            info.ui.classList.remove("matched");
-          }
-        }
-      });
-    }
   }
 }

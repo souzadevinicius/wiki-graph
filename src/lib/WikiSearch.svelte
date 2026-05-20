@@ -23,6 +23,11 @@
   }
 
   $: query = $queryStore;
+  $: {
+    if ($queryStore){
+      dispatch('search', $queryStore)
+    }
+  }
 
   async function onKeyup(e: KeyboardEvent) {
     // input catches keydown
@@ -124,11 +129,11 @@
       autocomplete="off"
       placeholder="start wiki search..."
       bind:value={query}
-      on:input={() => queryStore.set(query)}
       on:click={getSuggestions}
       on:keyup={onKeyup}
       on:keydown={handleArrows}
       on:blur={() => setTimeout(dropSuggest, 100)}
+      autofocus
     />
     <LanguageSelect/>
   </div>
@@ -149,51 +154,44 @@
 
     display: flex;
     flex-direction: column;
-    width: 100%;
+    width: fit-content;
 
     color: var(--textColor);
-    align-items: center;
+
   }
 
   .input-wrapper {
     position: relative;
-    width: min(720px, 100%);
+    width: 100%;
 
     display: grid;
-    grid-template-columns: 1fr min-content;
+    grid-template-columns: auto min-content;
     align-items: center;
-    gap: 0.5rem;
 
     background-color: #fff;
 
-    border: 1px solid var(--borderColor);
-    border-radius: 10px;
-    padding: 0.25rem;
-    box-shadow: 0 6px 18px rgba(37, 73, 115, 0.04);
+    border: 2px solid var(--borderColor);
+    /* border-radius: 5px 5px 0 0; */
+    box-shadow: inset 0 0 0 1px #fff;
 
     &:focus-within {
       border-color: var(--c-accent);
-      box-shadow: 0 8px 22px rgba(43,108,176,0.08);
+      box-shadow: inset 0 0 0 1px var(--c-accent);
     }
   }
 
   input {
-    font-size: 1.15rem;
-    min-width: 220px;
-    padding: 0.6em 0.75em;
+    font-size: 1.2rem;
+    min-width: 280px;
+    padding: 0.5em;
 
-    margin: 0;
+    margin: 2px;
 
     outline: none;
     border: none;
     color: inherit;
-    background: transparent;
   }
 
-  input::placeholder {
-    color: var(--textColorMuted);
-    opacity: 1;
-  }
 
   .progress-info {
     position: absolute;
@@ -203,7 +201,5 @@
     padding: 0.2em 0.4em;
 
     width: max-content;
-    color: var(--textColorMuted);
   }
-  
 </style>

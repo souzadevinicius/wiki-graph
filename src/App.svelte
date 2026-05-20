@@ -5,129 +5,188 @@
   import { appState, performSearch } from "./lib/state";
   import { apiClient, isMobile } from "./lib/apiClient";
   import { queryStore } from './lib/store';
-
+  
   import About from "./lib/About.svelte";
 
   import { Confetti } from "svelte-confetti";
+  let showConfetti = false
+  let showConfettiContainer = false
 
-  let renderer: any = null;
-  let showConfetti = false;
-  let showConfettiContainer = false;
   let aboutVisible = false;
+
+  // console.log('[App] appState:', appState)
+
+  // ------------------------------------------ language
+  /**
+   * can't do this in useState
+   * (core-anvaka-vs module doesn't know about apiClient.setLang method)
+   *
+   * so setting a language here.
+   *
+   * Use case:
+   *  1. first load
+   *  2. collect appState from url
+   *  3. perform search if query isn't empty (to this moment `lang` should be properly set)
+   */
 
   const DEFAULT_LANG = "en";
   apiClient.setLang(appState.lang || DEFAULT_LANG);
+  // ---------------------------------------------------
 
-  let iframe: HTMLIFrameElement | null = null;
+  
+  
+
+  let iframe;
   let iframeUrl = '';
 
-  function setupIframeListener(frame: HTMLIFrameElement, callback: (url: string) => void) {
-    const messageHandler = (event: MessageEvent) => {
+
+  function setupIframeListener(iframe, callback) {
+
+    const messageHandler = (event) => {
+      // Verify the sender's origin for security
       if (!event.origin.includes("wikipedia.org")) return;
       callback(event?.data?.subFrameData?.url);
     };
     window.addEventListener('message', messageHandler);
-    return () => window.removeEventListener('message', messageHandler);
-  }
-
-  // this function guarantees that hidden nodes don't flash on first render
-  function getText(node: any) {
-    return node.id;
+    return () => {
+        window.removeEventListener('message', messageHandler);
+      };
   }
 
   onMount(() => {
     if (iframe) {
-      iframe.onload = () => {
-        const iframeChange = setupIframeListener(iframe, (newUrl) => {
-          iframeUrl = newUrl;
-          const lastpath = decodeURIComponent(iframeUrl.split('/').filter(Boolean).pop() || '/');
-          queryStore.set(lastpath);
-        });
-        return iframeChange;
-      };
-    }
-
-    // create renderer after DOM is mounted so SVG exists
-    renderer = createRenderer(appState.progress, isMobile, getText);
-
-    if (appState.query) {
-      performSearchWrap(appState.query).then(() => {
-        if (appState.graph && renderer) {
-          renderer.render(appState.graph);
-        }
-      });
+        iframe.onload = () => {
+          const iframeChange = setupIframeListener(iframe, (newUrl) => {
+                iframeUrl = newUrl;
+                const lastpath = decodeURIComponent(iframeUrl.split('/').filter(Boolean).pop() || '/');
+                queryStore.set(lastpath);
+            });
+            return iframeChange;
+        };
     }
   });
+  
+  /**
+   * this funciton garantees that hidden
+   * nodes don't flash on first render
+   **/
+  function getText(node) {
+    console.log("🚀 | getText | node", node)
+    return node.id
+  }
+
+
+  const renderer = createRenderer(appState.progress, isMobile, getText);
+
+  if (appState.query) {
+    performSearchWrap(appState.query).then((res) => {
+      if (appState.graph) {
+        renderer.render(appState.graph);
+      }
+    });
+  }
+
 
   // ------------------------------------------ tooltip
   let isTooltipHidden = true;
   let tooltipHTML = "";
-  let tooltipEl: HTMLElement | null = null;
-  let hidingTimer: ReturnType<typeof setTimeout> | null = null;
-  let showingTimer: ReturnType<typeof setTimeout> | null = null;
+  let tooltipEl;
+  let hidingTimer: NodeJS.Timeout;
+  let showingTimer: NodeJS.Timeout;
 
   const ttWidth = 400;
   const ttHeight = 500;
 
   function scheduleHide() {
+    // console.log("🚀 sheduleHide")
+
     return setTimeout(() => {
+      // console.log("🚀🚀 hide")
+
       isTooltipHidden = true;
     }, 100);
   }
 
   function scheduleShow() {
+    // console.log("🚀 sheduleShow")
+
     return setTimeout(() => {
+      // console.log("🚀🚀 show")
+
       isTooltipHidden = false;
-      if (showingTimer) {
-        clearTimeout(showingTimer);
-        showingTimer = null;
-      }
+      clearTimeout(showingTimer);
+      showingTimer = null;
     }, 200);
   }
 
   function onEnterTooltip() {
-    if (hidingTimer) clearTimeout(hidingTimer);
+    // console.log("🚀 ~ onEnterTooltip")
+    clearTimeout(hidingTimer);
   }
 
   function onLeaveTooltip() {
+    // console.log("🚀 ~ onLeaveTooltip")
     hidingTimer = scheduleHide();
   }
 
-  function showTooltipNode(e: any) {
-    clearTimeout(hidingTimer as any);
+  function showTooltipNode(e) {
+    console.log("🚀 ~ showTooltipNode ~ e", e)
+    // console.log("🚀 ~ showTooltipNode ~ e", visualViewport)
+
+    clearTimeout(hidingTimer);
 
     if (!e.node) {
       hidingTimer = scheduleHide();
-      if (showingTimer) { clearTimeout(showingTimer); showingTimer = null; }
+      clearTimeout(showingTimer);
+      showingTimer = null;
       return;
     }
 
-    if (showingTimer) return;
-
-    const center = { x: visualViewport.width / 2, y: visualViewport.height / 2 };
-    const sign = { x: center.x - e.x, y: center.y - e.y };
-    const isUp = sign.y < 0;
-
-    const { thumbnail, extract_html, page_url } = e.node.data;
-    // thumbnail can be either a string URL or an object { source }
-    let thumbSrc = null;
-    if (thumbnail) {
-      if (typeof thumbnail === 'string') thumbSrc = thumbnail;
-      else if (thumbnail.source) thumbSrc = thumbnail.source;
+    if (showingTimer) {
+      return;
     }
-    tooltipHTML = thumbSrc ? `<img src="${thumbSrc}" />` : "";
+
+    // ------------------------ direction
+    const center = {
+      x: visualViewport.width / 2,
+      y: visualViewport.height / 2,
+    };
+
+    const sign = {
+      x: center.x - e.x,
+      y: center.y - e.y,
+    };
+
+    const isUp = sign.y < 0;
+    // ----------------------------------
+
+    // TODO: should sanitize?
+    // https://developer.mozilla.org/en-US/docs/Web/API/HTML_Sanitizer_API
+    const { thumbnail, extract_html, page_url } = e.node.data;
+    tooltipHTML = thumbnail ? `<img src="${thumbnail.source}" />` : "";
+
     const fallbackText = `Can't find a preview. See <a href="${page_url}">the original article</a>`;
     tooltipHTML += `<div class="text">${extract_html || fallbackText}</div>`;
 
+    // reuse current tooltip
+    // if (!isTooltipHidden) {
+    //   return
+    // }
+
     showingTimer = scheduleShow();
 
+    let left: number;
     requestAnimationFrame(() => {
-      let left = e.x - ttWidth / 3;
+      // shift a bit left
+      left = e.x - ttWidth / 3;
+
+      // keep within viewport
       left = Math.max(10, left);
       left = Math.min(visualViewport.width - ttWidth - 10, left);
 
-      if (tooltipEl) {
+      if (tooltipEl){
         tooltipEl.style.left = left + "px";
+
         if (isUp) {
           tooltipEl.style.top = "unset";
           tooltipEl.style.bottom = visualViewport.height - e.y + 20 + "px";
@@ -136,68 +195,70 @@
           tooltipEl.style.bottom = "unset";
         }
       }
+
+      // ---------------- test: static corner
+      // tooltipEl.style.bottom = 0
+      // tooltipEl.style.top = 'unset'
+      // tooltipEl.style.right = 0
+      // tooltipEl.style.left = 'unset'
+      // ---------------------------------------
     });
   }
 
   bus.on("show-tooltip-node", showTooltipNode, {});
 
   // --------------------------------------- node click
-  function onNodeClick(e: any) {
+  function onNodeClick(e) {
+    console.log("🚀 ~ onNodeClick ~ e", e)
+    // window.open(e.node.data.page_url);
     appState.query = e.node.id;
     queryStore.set(appState.query);
   }
 
+    // window.open(e.node.data.page_url, '_blank')
+
   bus.on("show-details-node", onNodeClick, {});
 
-  function onNodeClickRight(e: any) {
+  function onNodeClickRight(e) {
+    // console.log("🚀 ~ onNodeClickRight ~ e", e)
+
     appState.query = e.node.id;
-    // directly perform search for right-click
-    performSearchWrap(e.node.id);
+    onSearch({ detail: e.node.id });
   }
 
   bus.on("node-click-right", onNodeClickRight, {});
 
   // --------------------------------------- functions
-  async function onSearch(e: CustomEvent<string>) {
+  async function onSearch(e: CustomEvent) {
     const q = e.detail;
+    // console.log('[onSearch] query:', q);
+
     await performSearchWrap(q);
-    if (renderer) renderer.render(appState.graph);
+    renderer.render(appState.graph);
   }
 
-  // Emit filter events whenever the query store changes (live filtering)
-  $: if ($queryStore !== undefined) {
-    bus.fire('filter', $queryStore);
-  }
-
-  async function performSearchWrap(query: string) {
+  async function performSearchWrap(query) {
     const summary = await apiClient.getSummary(query);
+    // console.log('[summary]', summary);
+
     const entryItem = apiClient.getItem(summary);
-    if (iframe) iframe.src = entryItem?.data?.page_url || '';
+    // iframe.src = 'https://ge.globo.com';
+    iframe.src = entryItem?.data?.page_url;
     performSearch(entryItem);
   }
+
 </script>
 
 <!-- <main class="app-container"> -->
 <WikiSearch on:search={onSearch} />
 
 
-<div class="parent-container">
-  <div id="graphtest-wrapper">
-    <svg id="graphtest">
-      <g id="scene">
-        <g id="edges"></g>
-        <g id="nodes"></g>
-      </g>
-    </svg>
-  </div>
-
-  <div class="iframe-container">
-    <iframe
-      bind:this={iframe}
-      title="Embedded Content"
-      width="100%"
-    ></iframe>
-  </div>
+<div class="iframe-container">
+  <iframe 
+  bind:this={iframe}
+  title="Embedded Content"
+  width="100%"
+></iframe>
 </div>
 
 
@@ -234,7 +295,7 @@
 {/if}
 
 <div class="layout-container about-links muted">
-  <button class="link-like" on:click={() => (aboutVisible = true)}>about</button>
+  <a href="#" on:click={() => (aboutVisible = true)}>about</a>
   <a
     href="https://github.com/souzadevinicius/wiki-graph"
     target="_blank"
@@ -270,16 +331,5 @@
     position: fixed;
     bottom: 0px;
     /* left: 0; */
-  }
-
-  /* dimming for filtered nodes and links */
-  :global(.dimmed) {
-    opacity: 0.12;
-    transition: opacity 180ms ease;
-  }
-
-  :global(.matched) {
-    opacity: 1;
-    transition: opacity 180ms ease;
   }
 </style>
