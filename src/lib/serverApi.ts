@@ -52,20 +52,19 @@ export async function processWithChapters(
   uploadId: string,
   chapterIds: number[],
   lang: string,
+  resolveWiki: boolean,
   onProgress: (stage: string, detail: string, count: number) => void,
 ) {
-  const formData = new FormData();
-  formData.append("upload_id", uploadId);
-  for (const cid of chapterIds) {
-    formData.append("chapter_ids", String(cid));
-  }
-  formData.append("lang", lang);
-  formData.append("wiki_lang", lang);
-  formData.append("resolve_wiki", "true");
-
   const response = await fetch("/api/process-chapters", {
     method: "POST",
-    body: formData,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      upload_id: uploadId,
+      chapter_ids: chapterIds,
+      lang,
+      wiki_lang: lang,
+      resolve_wiki: resolveWiki,
+    }),
   });
 
   if (!response.ok) {

@@ -5,6 +5,7 @@
   const dispatch = createEventDispatcher();
 
   export let bookLang: "en" | "pt" = "en";
+  let resolveWiki: boolean = true;
 
   // Phases: 'select' | 'chapters' | 'processing'
   let phase: "select" | "chapters" | "processing" = "select";
@@ -26,6 +27,7 @@
     file = target.files?.[0] || null;
     error = null;
     phase = "select";
+    resolveWiki = true;
   }
 
   async function extractAndShowChapters() {
@@ -50,15 +52,15 @@
 
   function toggleChapter(id: number) {
     if (selectedChapterIds.has(id)) {
-      selectedChapterIds.delete(id);
+      selectedChapterIds = new Set([...selectedChapterIds].filter(x => x !== id));
     } else {
-      selectedChapterIds.add(id);
+      selectedChapterIds = new Set([...selectedChapterIds, id]);
     }
   }
 
   function toggleAll() {
     if (selectedChapterIds.size === chapters.length) {
-      selectedChapterIds.clear();
+      selectedChapterIds = new Set();
     } else {
       selectedChapterIds = new Set(chapters.map(c => c.id));
     }
@@ -76,6 +78,7 @@
         uploadId,
         Array.from(selectedChapterIds),
         bookLang,
+        resolveWiki,
         (stage, detail, count) => {
           progressStage = stage;
           progressDetail = detail;
@@ -97,6 +100,7 @@
     uploadId = null;
     chapters = [];
     selectedChapterIds = new Set();
+    resolveWiki = true;
   }
 
   $: count = selectedChapterIds.size;
@@ -121,6 +125,11 @@
           <option value="pt">Português</option>
         </select>
       </div>
+
+      <label class="wiki-toggle">
+        <input type="checkbox" bind:checked={resolveWiki} />
+        Resolve entities to Wikipedia
+      </label>
 
       <button
         class="upload-btn"
@@ -238,6 +247,23 @@
     border: 1px solid var(--border-color, #333);
     background: var(--bg-secondary, #1a1a2e);
     color: var(--text-primary, #e0e0e0);
+  }
+
+  .wiki-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-secondary, #888);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .wiki-toggle input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent, #4a9eff);
+    cursor: pointer;
   }
 
   .upload-btn {

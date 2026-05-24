@@ -13,7 +13,7 @@ import svg from "simplesvg";
 /**
  * Creates a new renderer. The rendering is done with SVG.
  */
-export default function createRenderer(progress, isMobile, getText, afterAddNodeHook) {
+export default function createRenderer(progress, isMobile, getText, afterAddNodeHook, physicsConfig = {}) {
   const scene = document.querySelector("#scene");
   const nodeContainer = scene.querySelector("#nodes");
   const edgeContainer = scene.querySelector("#edges");
@@ -35,6 +35,9 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
   // maps node id to node ui
   let nodes = new Map();
 
+  // Track all pending click timers for cleanup on graph replacement
+  let allClickTimers = new Set();
+
   let linkIndex;
   let layout,
     graph,
@@ -46,6 +49,8 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
   return {
     render,
     dispose,
+    setLayout,
+    reLayout
   };
 
   function dispose() {
@@ -133,14 +138,15 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
     clearLastScene();
     graph = newGraph;
 
-    layout = createAggregateLayout(graph, progress);
-
-    layout.on("ready", drawLinks);
+    layout = createAggregateLayout(graph, progress, physicsConfig);
 
     nodes = new Map();
 
     graph.forEachNode(addNode);
     graph.on("changed", onGraphStructureChanged);
+
+    // Draw edges immediately — don't wait for layout "ready"
+    drawLinks();
 
     cancelAnimationFrame(currentLayoutFrame);
     currentLayoutFrame = requestAnimationFrame(frame);
@@ -165,11 +171,14 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
       if (change.changeType === "add" && change.node) {
         addNode(change.node);
       }
+      if (change.changeType === "add" && change.link) {
+        addLink(change.link);
+      }
     });
   }
 
   function drawLinks() {
-    progress.done();
+    if (linkAnimator) return; // already drawn
     linkAnimator = createLinkAnimator(graph, layout, edgeContainer);
 
     // document.addEventListener('mousemove', onMouseMove);
@@ -190,6 +199,10 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
   }
 
   function clearLastScene() {
+    // Clear all pending click timers
+    allClickTimers.forEach(timer => clearTimeout(timer));
+    allClickTimers.clear();
+
     clear(nodeContainer);
     clear(edgeContainer);
 
@@ -202,42 +215,56 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
     if (linkAnimator) linkAnimator.dispose();
   }
 
+  function setLayout(config) {
+    if (layout) layout.setLayout(config);
+  }
+
+  function reLayout(config) {
+    if (layout) {
+      layout.reLayout(config);
+      progress.startLayout();
+      cancelAnimationFrame(currentLayoutFrame);
+      currentLayoutFrame = requestAnimationFrame(frame);
+    }
+  }
+
   function clear(el) {
     while (el.lastChild) {
       el.removeChild(el.lastChild);
     }
   }
 
+  function addLink(link) {
+    if (linkAnimator) {
+      linkAnimator.addLink(link);
+    }
+  }
+
   function addNode(node) {
-    const dRatio = (graph.maxDepth - node.data.depth) / (graph.maxDepth);
+    const maxDepth = graph.maxDepth || 0;
+    const dRatio = maxDepth > 0 ? (maxDepth - node.data.depth) / maxDepth : 1;
+    const expansionColor = node.data.expansionColor || null;
     let pos = getNodePosition(node.id);
-    if (node.data.depth === 0) {
+    if (node.data.depth === 0 && maxDepth > 0) {
       layout.pinNode(node);
     }
 
     const uiAttributes = getNodeUIAttributes(node.id, dRatio);
     layout.addNode(node.id, uiAttributes);
 
-    const rectAttributes = {
-      // x: uiAttributes.x,
-      // y: uiAttributes.y,
-      // width: uiAttributes.width,
-      // height: uiAttributes.height,
-      // rx: uiAttributes.rx,
-      // ry: uiAttributes.ry,
-      // fill: "white",
-      // "stroke-width": uiAttributes.strokeWidth,
-      // stroke: "#58585A",
-      cx: uiAttributes.x + uiAttributes.width / 2, // Center x-coordinate
-      cy: uiAttributes.y + uiAttributes.height / 2, // Center y-coordinate
-      r: Math.min(uiAttributes.width, uiAttributes.height), // Radius
+const rectAttributes = {
+      cx: 0,
+      cy: 0,
+      r: uiAttributes.width / 2,
       fill: "white",
-      stroke: "#58585A",
+      stroke: expansionColor || "#58585A",
       strokeWidth: uiAttributes.strokeWidth,
     };
+
     const textAttributes = {
       "font-size": uiAttributes.fontSize,
-      x: uiAttributes.px,
+      "text-anchor": "middle", // Built-in SVG alignment
+      x: 0,
       y: uiAttributes.py,
     };
 
@@ -261,8 +288,43 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
 
     // --------------------- listeners ----------------------
     let moved;
+    let isDragging = false;
+    let dragOffset = { x: 0, y: 0 };
+
     let moveListener = (e) => {
-      moved = true;
+      if (isDragging) {
+        // Convert screen coords to scene space
+        pt.x = e.clientX;
+        pt.y = e.clientY;
+        let sceneP = pt.matrixTransform(scene.getScreenCTM().inverse());
+        let newX = sceneP.x - dragOffset.x;
+        let newY = sceneP.y - dragOffset.y;
+        layout.setNodePosition(node.id, newX, newY);
+
+        // Update edges connected to this node in real-time
+        if (linkAnimator && node.links) {
+          node.links.forEach((link) => {
+            let linkInfo = linkAnimator.getLinkInfo(link.id);
+            if (linkInfo) {
+              let fromPos = layout.getNodePosition(link.fromId);
+              let toPos = layout.getNodePosition(link.toId);
+              linkInfo.ui.attr('d', `M${fromPos.x},${fromPos.y} L${toPos.x},${toPos.y}`);
+            }
+          });
+        }
+      } else if (moved) {
+        // First move sets moved=true; second move starts actual dragging
+        isDragging = true;
+      } else {
+        moved = true;
+      }
+    };
+
+    /** Tracks clicks for double-click detection. */
+    let clickTracker = {
+      count: 0,
+      timer: null,
+      pendingAction: null,
     };
 
     /** The `flag` shows if there was a tap within `timeout` ms. */
@@ -279,15 +341,12 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
     };
 
     let downListener = (e) => {
-      // console.log("🚀 | downListener | e", e);
-
       moved = false;
-      // onLeaveNode(e, node);
+      isDragging = false;
 
       // long tap timer
       if (e.pointerType === "touch") {
         clearTimeout(longTap.timer);
-
         longTap.expect = false;
         longTap.timer = setTimeout(
           () => (longTap.expect = true),
@@ -295,63 +354,90 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
         );
       }
 
-      // ui.addEventListener("mousemove", moveListener);
-      // ui.addEventListener("touchmove", moveListener);
-      ui.addEventListener("pointermove", moveListener);
+      // Capture pointer for drag (tracks movement outside the node)
+      ui.setPointerCapture(e.pointerId);
 
-      // relates to this?
-      // https://github.com/anvaka/panzoom/blob/main/lib/makeTextSelectionInterceptor.js
+      // Prevent panzoom from panning while we drag a node
+      e.stopPropagation();
+
+      // Record initial offset so the node doesn't jump to cursor center
+      pt.x = e.clientX;
+      pt.y = e.clientY;
+      let sceneP = pt.matrixTransform(scene.getScreenCTM().inverse());
+      let nodePos = getNodePosition(node.id);
+      dragOffset.x = sceneP.x - nodePos.x;
+      dragOffset.y = sceneP.y - nodePos.y;
+
+      // Pin the node (remove from simulation) so we can drag it freely
+      layout.pinNode(node);
+      ui.style.cursor = 'grabbing';
+
+      ui.addEventListener("pointermove", moveListener);
     };
     let upListener = (e) => {
-      if (moved) {
-        // console.log("moved");
-      } else {
-        // on desktop: fire click to open a new tab
-        if (e.pointerType === "mouse" && e.button === 0) onNodeClick(e, node, ui, text);
+      // Release pointer capture
+      try { ui.releasePointerCapture(e.pointerId); } catch(_) {}
 
-        // on touch screens: fire onEnterNode to show tooltip
-        if (e.pointerType === "touch") {
-          // start a timer to handle double tap
-          if (wasTap.flag) {
-            // console.log("🚀 | upListener: double tap!");
-            onNodeClick(e, node, ui, text);
-
-            // to prevent tripple tap
-            wasTap.flag = false;
-            clearTimeout(wasTap.timer);
-          } else {
-            wasTap.flag = true;
-            wasTap.timer = setTimeout(
-              () => (wasTap.flag = false),
-              wasTap.timeout
-            );
-          }
-
-          // long tap => right-click
-          if (longTap.expect) {
-            // console.log("🚀 | upListener: long tap!");
-
-            // fire leave node event
-            onLeaveNode(e, null);
-
-            // fire right click
-            bus.fire("node-click-right", { node });
-          } else {
-            // open tooltip
-            // onEnterNode(e, node, true);
-          }
-
-          // to prevent onSceneClick from hiding the tooltip
-          // e.preventDefault();
-          e.stopPropagation();
-        }
-
-        // console.log("not moved");
+      // If we actually dragged or moved, unpin and skip click handling
+      if (isDragging || moved) {
+        layout.unpinNode(node);
+        ui.style.cursor = 'pointer';
+        isDragging = false;
+        moved = false;
+        ui.removeEventListener("pointermove", moveListener);
+        return;
       }
 
-      moved = false;
-      // ui.removeEventListener("mousemove", moveListener);
-      // ui.removeEventListener("touchmove", moveListener);
+      // No movement — treat as click
+      clickTracker.count += 1;
+      if (clickTracker.count === 1) {
+        const timer = setTimeout(() => {
+          allClickTimers.delete(timer);
+          if (clickTracker.pendingAction) clickTracker.pendingAction();
+          clickTracker.count = 0;
+          clickTracker.pendingAction = null;
+        }, 300);
+        allClickTimers.add(timer);
+        clickTracker.timer = timer;
+        clickTracker.pendingAction = () => onNodeClick(e, node, ui, text);
+      } else if (clickTracker.count === 2) {
+        clearTimeout(clickTracker.timer);
+        allClickTimers.delete(clickTracker.timer);
+        clickTracker.count = 0;
+        clickTracker.pendingAction = null;
+        onNodeDoubleClick(e, node, ui, text);
+      }
+
+      // on touch screens: fire onEnterNode to show tooltip
+      if (e.pointerType === "touch") {
+        if (wasTap.flag) {
+          onNodeClick(e, node, ui, text);
+          wasTap.flag = false;
+          clearTimeout(wasTap.timer);
+        } else {
+          wasTap.flag = true;
+          wasTap.timer = setTimeout(
+            () => (wasTap.flag = false),
+            wasTap.timeout
+          );
+        }
+
+        // long tap => right-click
+        if (longTap.expect) {
+          onLeaveNode(e, null);
+          bus.fire("node-click-right", { node });
+        }
+
+        if (longTap.expect) {
+          clearTimeout(clickTracker.timer);
+          allClickTimers.delete(clickTracker.timer);
+          clickTracker.count = 0;
+          clickTracker.pendingAction = null;
+        }
+
+        e.stopPropagation();
+      }
+
       ui.removeEventListener("pointermove", moveListener);
     };
 
@@ -396,6 +482,7 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
   function onNodeDoubleClick(e, node, ui, text) {
     // console.log("🚀 ~ onNodeClick ~ e, node", e, node);
     bus.fire("show-iframe-node", { node, ui, text });
+    bus.fire("node-double-click", { node });
   }
 
   function onLeaveNode(e, node) {
@@ -438,23 +525,24 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
     });
   }
 
-  function getNodeUIAttributes(nodeId, dRatio) {
-    const fontSize = 45 * dRatio + 14;
+function getNodeUIAttributes(nodeId, dRatio) {
+    const fontSize = 10 * dRatio + 10;
     const size = textMeasure(nodeId, fontSize);
-    const width = size.totalWidth + size.spaceWidth * 6;
-    const height = fontSize * 1.6;
+    
+    const padding = 6;
+    const diameter = size.totalWidth + padding * 2;
 
     return {
       fontSize,
-      width,
-      height,
-      x: -width / 2,
-      y: -height / 2,
-      rx: 15 * dRatio + 2,
-      ry: 15 * dRatio + 2,
-      px: -width / 2 + size.spaceWidth * 3,
-      py: -height / 2 + fontSize * 1.1,
-      strokeWidth: 4 * dRatio + 1,
+      width: diameter,
+      height: diameter, // Form a true square boundary box for the circle
+      x: -diameter / 2,
+      y: -diameter / 2,
+      rx: diameter / 2,
+      ry: diameter / 2,
+      px: -size.totalWidth / 2, // Center the text beautifully
+      py: fontSize * 0.35,      // Adjust vertically to center alignment baseline
+      strokeWidth: 2 * dRatio + 1,
     };
   }
 
@@ -463,6 +551,7 @@ export default function createRenderer(progress, isMobile, getText, afterAddNode
       let pos = getNodePosition(nodeId);
       ui.attr("transform", `translate(${pos.x}, ${pos.y})`);
     });
+    if (linkAnimator) linkAnimator.updatePositions();
   }
 
   function getNodePosition(nodeId) {

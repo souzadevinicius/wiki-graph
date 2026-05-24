@@ -18,6 +18,8 @@
     node: { name: string; role: string}
     edge: { name: string; role: string}
     nodeClick: { name: string; role: string}
+    nodeDouble: { name: string; role: string}
+    nodeRight: { name: string; role: string}
     nodeHover: { name: string; role: string}
   }
 
@@ -33,6 +35,8 @@
       node: {name: 'Node', role: 'represents a wiki article'},
       edge: {name: 'Edge', role: 'represents a relation between two articles'},
       nodeClick: {name: 'Node click', role: 'opens the article in a new tab'},
+      nodeDouble: {name: 'Node double-click', role: 'navigate to this article as the new graph root'},
+      nodeRight: {name: 'Node right-click', role: 'expand backlinks into the current graph'},
       nodeHover: {name: 'Node hover', role: 'shows the article preview in a small popup'},
     },
   }
@@ -84,6 +88,8 @@
             <li><strong>{text[currentLang].node.name}</strong> {text[currentLang].node.role}.</li>
             <li><strong>{text[currentLang].edge.name}</strong> {text[currentLang].edge.role}.</li>
             <li><strong>{text[currentLang].nodeClick.name}</strong> {text[currentLang].nodeClick.role}.</li>
+            <li><strong>{text[currentLang].nodeDouble.name}</strong> {text[currentLang].nodeDouble.role}.</li>
+            <li><strong>{text[currentLang].nodeRight.name}</strong> {text[currentLang].nodeRight.role}.</li>
             <li><strong>{text[currentLang].nodeHover.name}</strong> {text[currentLang].nodeHover.role}.</li>
           </ul>
         {/key}

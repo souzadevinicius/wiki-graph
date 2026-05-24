@@ -1,23 +1,56 @@
-# Wiki Graph — Glossary
+# Wiki Graph
 
-> This file is a glossary of domain terms. It is not a spec, not a design doc, not implementation notes.
+Visual exploration of knowledge graphs -- Wikipedia article networks and book entity graphs.
 
-## Terms
+## Glossary
 
-- **Book** — A PDF, TXT, or EPUB document uploaded by the user as a source of text for entity extraction.
+### Interactions
 
-- **Chapter** — A contiguous segment of a Book's text, delineated by structural markers in the source document (e.g., "Chapter 1", "Capítulo 2", EPUB spine items, or PDF page breaks in structured books). Chapters are a first-class concept that the user can filter on before the Processing Pipeline runs. Chapter labels use source-native titles when available (e.g., EPUB NCX/nav titles), falling back to sequential numbering ("Chapter 1", "Chapter 2") for heuristic detection. Chapters are identified by a 1-based sequential integer within the scope of a single upload.
+**expand**:
+Right-clicking a node to add its Wikipedia backlinks to the existing graph without replacing it. The clicked node is called the expansion anchor.
+_Avoid_: drill down, zoom in, follow
 
-- **Entity** — A named concept extracted from Book text via NLP (e.g., person, location, organization). Entities are resolved to a canonical form by querying the Wikipedia search API against each unique mention, using the user's selected frontend language to determine which Wikipedia edition to query. The Wikipedia article title (plus edition code) becomes the canonical key. Each entity tracks which Chapters it appeared in via `chapter_ids`.
+**navigate**:
+Double-clicking a node to replace the entire graph with a new one rooted at that node.
+_Avoid_: go to, jump to, change root
 
-- **Book Language** — Books are processed in either English or Portuguese. The user specifies the language at upload time, which determines which NER model is used for entity extraction and which chapter-detection regex patterns are applied (e.g., "Chapter N" for English, "Capítulo N" for Portuguese).
+### Graph concepts
 
-- **Processing Pipeline** — A streaming workflow where the Server processes a Book in stages: (1) extract text and detect chapters, (2) present chapter list to the user for selection, (3) extract entities via NER from selected chapters only, (4) build edges, (5) resolve Wikipedia. Progress is streamed to the Frontend via Server-Sent Events (SSE). The user sees real-time progress: entity count, edge count, Wikipedia resolution status.
+**backlink**:
+A Wikipedia page that links to the expansion anchor's Wikipedia article. Fetched via the `linkshere` API.
+_Avoid_: parent, upstream, reference
 
-- **Server** — A FastAPI application that serves both the REST API (under `/api/`) and the built Svelte frontend as static files. Single deployment unit.
+**backlink depth**:
+The radius of expansion from an expansion anchor. Current value: 1 (immediate backlinks only).
 
-- **Entity Graph** — A graph whose nodes are Entities and whose edges come in two types: **Book Edges** (window-based proximity between entities in the Book text, weighted by closeness) and **Wikipedia Edges** (added when the Wikipedia Layer is enabled, representing related-page relationships between Wikipedia-resolved entities). The two edge types are visually distinguishable (e.g., different colors or weights).
+### Layout
 
-- **Wikipedia Layer** — An optional enrichment where Entities are resolved to corresponding Wikipedia articles. When enabled, Entity Graph nodes gain Wikipedia metadata (summary, thumbnail, related pages). When disabled, the core Entity Graph remains intact — nodes fall back to raw entity labels and book-derived edges only.
+**physics config**:
+User-adjustable parameters that control how the force-directed layout arranges nodes.
 
-- **Fusion Mode** — The default operating mode where the Entity Graph is built from Books, and the Wikipedia Layer is available as a toggleable enrichment.
+**springLength**:
+Ideal distance between connected nodes (default: 50, range: 10-100).
+
+**gravity**:
+How hard nodes are pulled toward the center; negative values attract, zero means no centering (default: -3, range: -20 to 0).
+
+**warm restart**:
+Re-running the force layout simulation from current node positions rather than resetting to random positions.
+
+**node spacing**:
+User-facing label for springLength; controls how cramped or spacious the graph feels.
+
+**spread**:
+User-facing label for gravity; controls how much of the viewport the graph utilizes.
+
+### Visual
+
+**expansion color**:
+A per-expansion stroke color applied to newly added nodes and edges during an expand operation. Each expansion gets a distinct color so the user can tell which bloom belongs to which click.
+
+## Relationships
+
+- An **expand** adds **backlinks** to the existing graph; it does not replace it.
+- A **navigate** replaces the entire graph with a new one.
+- A backlink has a **backlink depth** of 1 from its expansion anchor.
+- Book entity nodes use their `wikipedia_title` as the expansion anchor for fetching backlinks.

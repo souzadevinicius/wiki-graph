@@ -1,11 +1,23 @@
 <script lang="ts">
   import WikiSearch from "./lib/WikiSearch.svelte";
+  import BookUpload from "./lib/BookUpload.svelte";
+  import LayoutControls from "./lib/LayoutControls.svelte";
   import { onMount } from 'svelte';
   import { bus, createRenderer } from "./core-anvaka-vs";
   import { appState, performSearch } from "./lib/state";
   import { apiClient, isMobile } from "./lib/apiClient";
   import { queryStore } from './lib/store';
-  
+
+  // Expansion color palette — one color per expansion bloom
+  const EXPANSION_COLORS = [
+    'hsl(210, 70%, 50%)',  // blue
+    'hsl(160, 60%, 40%)',  // teal
+    'hsl(280, 60%, 55%)',  // purple
+    'hsl(30, 80%, 50%)',   // orange
+    'hsl(340, 65%, 50%)',  // pink
+    'hsl(120, 55%, 40%)',  // green
+  ];
+
   import About from "./lib/About.svelte";
 
   import { Confetti } from "svelte-confetti";
@@ -30,53 +42,62 @@
    */
 
   const DEFAULT_LANG = "en";
-  apiClient.setLang(appState.lang || DEFAULT_LANG);
+ apiClient.setLang(appState.lang || DEFAULT_LANG);
   // ---------------------------------------------------
 
-  
-  
+  // ------------------------------------------ layout config
+  const LAYOUT_STORAGE_KEY = "wiki-graph-layout-config";
+  const DEFAULT_LAYOUT = { springLength: 100, gravity: -3 };
 
-  let iframe;
-  let iframeUrl = '';
-
-
-  function setupIframeListener(iframe, callback) {
-
-    const messageHandler = (event) => {
-      // Verify the sender's origin for security
-      if (!event.origin.includes("wikipedia.org")) return;
-      callback(event?.data?.subFrameData?.url);
-    };
-    window.addEventListener('message', messageHandler);
-    return () => {
-        window.removeEventListener('message', messageHandler);
-      };
+  function loadLayoutConfig() {
+    try {
+      const saved = localStorage.getItem(LAYOUT_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          springLength: typeof parsed.springLength === 'number' ? parsed.springLength : DEFAULT_LAYOUT.springLength,
+          gravity: typeof parsed.gravity === 'number' ? parsed.gravity : DEFAULT_LAYOUT.gravity
+        };
+      }
+    } catch(e) {
+      console.warn('Failed to load layout config', e);
+    }
+    return DEFAULT_LAYOUT;
   }
 
-  onMount(() => {
-    if (iframe) {
-        iframe.onload = () => {
-          const iframeChange = setupIframeListener(iframe, (newUrl) => {
-                iframeUrl = newUrl;
-                const lastpath = decodeURIComponent(iframeUrl.split('/').filter(Boolean).pop() || '/');
-                queryStore.set(lastpath);
-            });
-            return iframeChange;
-        };
+  function saveLayoutConfig(config) {
+    try {
+      localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(config));
+    } catch(e) {
+      console.warn('Failed to save layout config', e);
     }
-  });
-  
+  }
+
+  let layoutConfig = loadLayoutConfig();
+  let layoutControlsVisible = false;
+  let isReLayouting = false;
+
   /**
    * this funciton garantees that hidden
    * nodes don't flash on first render
    **/
   function getText(node) {
-    console.log("🚀 | getText | node", node)
     return node.id
   }
 
+  const renderer = createRenderer(appState.progress, isMobile, getText, null, layoutConfig);
 
-  const renderer = createRenderer(appState.progress, isMobile, getText);
+  function onSettingsChange(config) {
+    layoutConfig = config;
+    saveLayoutConfig(config);
+    renderer.setLayout(config);
+  }
+
+  function onReLayout() {
+    isReLayouting = true;
+    renderer.reLayout(layoutConfig);
+    setTimeout(() => { isReLayouting = false; }, 3000);
+  }
 
   if (appState.query) {
     performSearchWrap(appState.query).then((res) => {
@@ -85,6 +106,89 @@
       }
     });
   }
+
+  let iframe;
+  let iframeUrl = '';
+
+  // Expansion state
+  let expansionIndex = 0;
+
+  async function expandNode(node) {
+    const wikiTitle = node.data.wikipedia_title || node.id;
+    if (!wikiTitle) return;
+
+    try {
+      const backlinks = await apiClient.getResponse(wikiTitle);
+      if (backlinks.length === 0) return;
+
+      const color = EXPANSION_COLORS[expansionIndex % EXPANSION_COLORS.length];
+      expansionIndex += 1;
+
+      const anchorDepth = node.data.depth ?? 0;
+
+      // Fetch summaries for rich tooltip data
+      const summaries = await Promise.all(
+        backlinks.map(async (bl) => {
+          const summary = await apiClient.getSummary(bl.title);
+          return apiClient.getItem(summary);
+        })
+      );
+
+      const newNodes = summaries.filter(Boolean);
+      if (newNodes.length === 0) return;
+
+      // Ensure maxDepth accommodates the new depth
+      const newDepth = anchorDepth + 1;
+      if (newDepth > (appState.graph.maxDepth || 0)) {
+        appState.graph.maxDepth = newDepth;
+      }
+
+      let added = 0;
+      newNodes.forEach((other) => {
+        if (appState.graph.hasNode(other.id)) return;
+
+        appState.graph.addNode(other.id, {
+          depth: newDepth,
+          expansionColor: color,
+          ...other.data,
+        });
+        appState.graph.addLink(node.id, other.id);
+        added += 1;
+      });
+
+      if (added > 0) {
+        appState.progress.reset();
+        appState.progress.startLayout();
+        renderer.reLayout(layoutConfig);
+      }
+    } catch (err) {
+      console.error('[expandNode] failed:', err);
+    }
+  }
+
+  function setupIframeListener(iframeEl, callback) {
+    const messageHandler = (event) => {
+      if (!event.origin.includes("wikipedia.org")) return;
+      callback(event?.data?.subFrameData?.url);
+    };
+    window.addEventListener('message', messageHandler);
+    return () => {
+      window.removeEventListener('message', messageHandler);
+    };
+  }
+
+  onMount(() => {
+    if (iframe) {
+      iframe.onload = () => {
+        const iframeChange = setupIframeListener(iframe, (newUrl) => {
+          iframeUrl = newUrl;
+          const lastpath = decodeURIComponent(iframeUrl.split('/').filter(Boolean).pop() || '/');
+          queryStore.set(lastpath);
+        });
+        return iframeChange;
+      };
+    }
+  });
 
 
   // ------------------------------------------ tooltip
@@ -162,11 +266,27 @@
 
     // TODO: should sanitize?
     // https://developer.mozilla.org/en-US/docs/Web/API/HTML_Sanitizer_API
-    const { thumbnail, extract_html, page_url } = e.node.data;
-    tooltipHTML = thumbnail ? `<img src="${thumbnail.source}" />` : "";
+    const data = e.node.data;
 
-    const fallbackText = `Can't find a preview. See <a href="${page_url}">the original article</a>`;
-    tooltipHTML += `<div class="text">${extract_html || fallbackText}</div>`;
+    // Book entity: has wikipedia_title and type
+    if (data.wikipedia_title !== undefined) {
+      const typeLabel = data.type ? `<span class="entity-type">${data.type}</span>` : "";
+      let html = "";
+      if (data.wikipedia_title) {
+        html += `<div class="wiki-title"><a href="${data.page_url}" target="_blank">${data.wikipedia_title}</a></div>`;
+      }
+      html += typeLabel;
+      if (data.mentions && data.mentions.length > 1) {
+        html += `<div class="mentions">Also: ${data.mentions.join(", ")}</div>`;
+      }
+      tooltipHTML = `<div class="text">${html}</div>`;
+    } else {
+      // Wikipedia node: has thumbnail and extract_html
+      const { thumbnail, extract_html, page_url } = data;
+      tooltipHTML = thumbnail ? `<img src="${thumbnail.source}" />` : "";
+      const fallbackText = `Can't find a preview. See <a href="${page_url}">the original article</a>`;
+      tooltipHTML += `<div class="text">${extract_html || fallbackText}</div>`;
+    }
 
     // reuse current tooltip
     // if (!isTooltipHidden) {
@@ -209,48 +329,63 @@
 
   // --------------------------------------- node click
   function onNodeClick(e) {
-    console.log("🚀 ~ onNodeClick ~ e", e)
-    // window.open(e.node.data.page_url);
-    appState.query = e.node.id;
-    queryStore.set(appState.query);
+    // Open Wikipedia article for both book entities and wiki nodes
+    const wikiTitle = e.node.data.wikipedia_title || e.node.id;
+    const wikiUrl = e.node.data.page_url || `https://${appState.lang || 'en'}.wikipedia.org/wiki/${encodeURIComponent(wikiTitle)}`;
+    window.open(wikiUrl, '_blank');
   }
 
-    // window.open(e.node.data.page_url, '_blank')
-
-  bus.on("show-details-node", onNodeClick, {});
-
-  function onNodeClickRight(e) {
-    // console.log("🚀 ~ onNodeClickRight ~ e", e)
-
+  function onNodeDoubleClick(e) {
     appState.query = e.node.id;
+    queryStore.set(appState.query);
     onSearch({ detail: e.node.id });
   }
 
+  function onNodeClickRight(e) {
+    expandNode(e.node);
+  }
+
+  bus.on("show-details-node", onNodeClick, {});
+  bus.on("node-double-click", onNodeDoubleClick, {});
   bus.on("node-click-right", onNodeClickRight, {});
 
   // --------------------------------------- functions
   async function onSearch(e: CustomEvent) {
     const q = e.detail;
-    // console.log('[onSearch] query:', q);
-
     await performSearchWrap(q);
     renderer.render(appState.graph);
   }
 
   async function performSearchWrap(query) {
     const summary = await apiClient.getSummary(query);
-    // console.log('[summary]', summary);
-
     const entryItem = apiClient.getItem(summary);
-    // iframe.src = 'https://ge.globo.com';
     iframe.src = entryItem?.data?.page_url;
     performSearch(entryItem);
+  }
+
+  // --------------------------------------- book graph
+  function onBookGraph(e: CustomEvent) {
+    const graph = e.detail;
+    appState.hasGraph = true;
+    appState.progress.reset();
+    appState.graph = graph;
+    renderer.render(graph);
+    bus.fire("graph-ready", graph);
   }
 
 </script>
 
 <!-- <main class="app-container"> -->
 <WikiSearch on:search={onSearch} />
+<BookUpload on:book-graph={onBookGraph} />
+<LayoutControls
+  bind:visible={layoutControlsVisible}
+  bind:springLength={layoutConfig.springLength}
+  bind:gravity={layoutConfig.gravity}
+  {isReLayouting}
+  on:reLayout={onReLayout}
+  on:settingsChange={(e) => onSettingsChange(e.detail)}
+/>
 
 
 <div class="iframe-container">
