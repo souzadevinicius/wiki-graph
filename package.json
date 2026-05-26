@@ -15,6 +15,7 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^1.0.0-next.30",
     "@tsconfig/svelte": "^2.0.1",
+    "@types/d3-hierarchy": "^3.1.7",
     "autoprefixer": "^10.4.7",
     "gh-pages": "^4.0.0",
     "postcss-load-config": "^4.0.1",
@@ -28,8 +29,13 @@
     "vite": "^2.9.9"
   },
   "dependencies": {
+    "d3-hierarchy": "^3.1.2",
     "delaunator": "^4.0.1",
     "flatbush": "^3.3.0",
+    "graphology": "^0.26.0",
+    "graphology-communities-louvain": "^2.0.2",
+    "graphology-gexf": "^0.13.2",
+    "graphology-layout-forceatlas2": "^0.10.1",
     "ngraph.events": "1.2.1",
     "ngraph.forcelayout": "^1.0.1",
     "ngraph.graph": "^19.1.0",
@@ -37,6 +43,7 @@
     "ngraph.random": "^1.0.0",
     "panzoom": "^9.2.5",
     "query-state": "^4.3.0",
+    "sigma": "^3.0.3",
     "simplesvg": "^0.1.1",
     "svelte-confetti": "^1.2.2",
     "wikipedia": "^1.1.8"

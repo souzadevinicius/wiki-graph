@@ -3,7 +3,7 @@
  * Handles file upload, SSE streaming, and graph data conversion.
  */
 
-import createGraph from "ngraph.graph";
+import { GraphologyAdapter } from './graphologyAdapter';
 
 export interface Chapter {
   id: number;
@@ -46,7 +46,7 @@ export async function extractChapters(
 /**
  * Phase 2: Process selected chapters and receive graph via SSE.
  *
- * @returns Promise that resolves to an ngraph.graph ready for rendering.
+ * @returns Promise that resolves to a GraphologyAdapter ready for rendering.
  */
 export async function processWithChapters(
   uploadId: string,
@@ -103,7 +103,7 @@ export async function processWithChapters(
 
   if (!graphData) throw new Error("No graph data received");
 
-  return graphToNgraph(graphData);
+  return graphToGraphology(graphData);
 }
 
 /**
@@ -164,14 +164,14 @@ export async function uploadBook(
 
   if (!graphData) throw new Error("No graph data received");
 
-  return graphToNgraph(graphData);
+  return graphToGraphology(graphData);
 }
 
 /**
- * Convert server graph JSON to ngraph.graph format.
+ * Convert server graph JSON to GraphologyAdapter format.
  */
-export function graphToNgraph(graphData: any) {
-  const graph = createGraph();
+export function graphToGraphology(graphData: any) {
+  const graph = new GraphologyAdapter();
 
   // Add nodes
   for (const entity of graphData.entities) {
@@ -179,7 +179,7 @@ export function graphToNgraph(graphData: any) {
     const mass = Array.isArray(entity.mentions) ? entity.mentions.length : (typeof entity.mentions === 'number' ? entity.mentions : 1);
     const data = {
       depth: 0,
-      type: entity.type,
+      entity_type: entity.entity_type,
       mentions: entity.mentions,
       mass,
       wikipedia_title: entity.wikipedia_title,
@@ -190,6 +190,9 @@ export function graphToNgraph(graphData: any) {
       thumbnail: null,
       extract_html: null,
       chapter_ids: entity.chapter_ids || [],
+      // Community data from backend
+      community: entity.community,
+      community_color: entity.community_color,
     };
     graph.addNode(id, data);
   }
@@ -197,9 +200,7 @@ export function graphToNgraph(graphData: any) {
   // Add edges
   for (const edge of graphData.edges) {
     if (graph.hasNode(edge.source) && graph.hasNode(edge.target)) {
-      if (!graph.getLink(edge.source, edge.target)) {
-        graph.addLink(edge.source, edge.target);
-      }
+      graph.addLink(edge.source, edge.target);
     }
   }
 

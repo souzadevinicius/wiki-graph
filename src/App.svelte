@@ -1,470 +1,381 @@
 <script lang="ts">
-  import WikiSearch from "./lib/WikiSearch.svelte";
-  import BookUpload from "./lib/BookUpload.svelte";
-  import LayoutControls from "./lib/LayoutControls.svelte";
   import { onMount } from 'svelte';
-  import { bus, createRenderer } from "./core-anvaka-vs";
-  import { appState, performSearch } from "./lib/state";
-  import { apiClient, isMobile } from "./lib/apiClient";
+  import { appState, performSearch, watchState } from './lib/state';
+  import { apiClient, isMobile } from './lib/apiClient';
   import { queryStore } from './lib/store';
+  import { SigmaRenderer } from './lib/sigmaRenderer';
+  import { detectCommunities, hasCommunityData } from './lib/communityDetection';
+  import { runForceAtlas2 } from './lib/layouts/forceAtlas2';
+import { runCirclePack } from './lib/layouts/circlePack';
+  import BookUpload from './lib/BookUpload.svelte';
+  import About from './lib/About.svelte';
+  import WikiSearch from './lib/WikiSearch.svelte';
 
-  // Expansion color palette — one color per expansion bloom
-  const EXPANSION_COLORS = [
-    'hsl(210, 70%, 50%)',  // blue
-    'hsl(160, 60%, 40%)',  // teal
-    'hsl(280, 60%, 55%)',  // purple
-    'hsl(30, 80%, 50%)',   // orange
-    'hsl(340, 65%, 50%)',  // pink
-    'hsl(120, 55%, 40%)',  // green
-  ];
-
-  import About from "./lib/About.svelte";
-
-  import { Confetti } from "svelte-confetti";
-  let showConfetti = false
-  let showConfettiContainer = false
-
+  let sigmaContainer: HTMLDivElement;
+  let renderer: SigmaRenderer | null = null;
   let aboutVisible = false;
 
-  // console.log('[App] appState:', appState)
+  // Layout state
+  let fa2Running = false;
+  let circlePackAvailable = false;
+  let currentLayout = 'fa2';
 
-  // ------------------------------------------ language
-  /**
-   * can't do this in useState
-   * (core-anvaka-vs module doesn't know about apiClient.setLang method)
-   *
-   * so setting a language here.
-   *
-   * Use case:
-   *  1. first load
-   *  2. collect appState from url
-   *  3. perform search if query isn't empty (to this moment `lang` should be properly set)
-   */
+  // Search filter state
+  let searchQuery = '';
+  let labelThreshold = 30;
+  let sizeThreshold = 0;
 
-  const DEFAULT_LANG = "en";
- apiClient.setLang(appState.lang || DEFAULT_LANG);
-  // ---------------------------------------------------
+  // Initialize
+  const DEFAULT_LANG = 'en';
+  apiClient.setLang(appState.lang || DEFAULT_LANG);
 
-  // ------------------------------------------ layout config
-  const LAYOUT_STORAGE_KEY = "wiki-graph-layout-config";
-  const DEFAULT_LAYOUT = { springLength: 100, gravity: -3 };
+  function initRenderer() {
+    if (!sigmaContainer || !appState.graph) return;
 
-  function loadLayoutConfig() {
-    try {
-      const saved = localStorage.getItem(LAYOUT_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return {
-          springLength: typeof parsed.springLength === 'number' ? parsed.springLength : DEFAULT_LAYOUT.springLength,
-          gravity: typeof parsed.gravity === 'number' ? parsed.gravity : DEFAULT_LAYOUT.gravity
-        };
-      }
-    } catch(e) {
-      console.warn('Failed to load layout config', e);
-    }
-    return DEFAULT_LAYOUT;
-  }
-
-  function saveLayoutConfig(config) {
-    try {
-      localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(config));
-    } catch(e) {
-      console.warn('Failed to save layout config', e);
-    }
-  }
-
-  let layoutConfig = loadLayoutConfig();
-  let layoutControlsVisible = false;
-  let isReLayouting = false;
-
-  /**
-   * this funciton garantees that hidden
-   * nodes don't flash on first render
-   **/
-  function getText(node) {
-    return node.id
-  }
-
-  const renderer = createRenderer(appState.progress, isMobile, getText, null, layoutConfig);
-
-  function onSettingsChange(config) {
-    layoutConfig = config;
-    saveLayoutConfig(config);
-    renderer.setLayout(config);
-  }
-
-  function onReLayout() {
-    isReLayouting = true;
-    renderer.reLayout(layoutConfig);
-    setTimeout(() => { isReLayouting = false; }, 3000);
-  }
-
-  if (appState.query) {
-    performSearchWrap(appState.query).then((res) => {
-      if (appState.graph) {
-        renderer.render(appState.graph);
-      }
+    renderer = new SigmaRenderer(appState.graph, {
+      container: sigmaContainer,
+      labelThreshold,
+      sizeThreshold,
     });
+
+    renderer.render();
+    setupEventListeners();
   }
 
-  let iframe;
-  let iframeUrl = '';
+  function setupEventListeners() {
+    if (!sigmaContainer) return;
 
-  // Expansion state
-  let expansionIndex = 0;
+    // Navigate (double-click)
+    sigmaContainer.addEventListener('navigate', (e: CustomEvent) => {
+      const nodeId = e.detail;
+      appState.query = nodeId;
+      queryStore.set(appState.query);
+      onSearch({ detail: nodeId });
+    });
 
-  async function expandNode(node) {
-    const wikiTitle = node.data.wikipedia_title || node.id;
-    if (!wikiTitle) return;
+    // Expand (right-click)
+    sigmaContainer.addEventListener('expand', async (e: CustomEvent) => {
+      const nodeId = e.detail;
+      if (!appState.graph) return;
 
-    try {
-      const backlinks = await apiClient.getResponse(wikiTitle);
-      if (backlinks.length === 0) return;
+      const node = appState.graph.getNode(nodeId);
+      const wikiTitle = node.data.wikipedia_title || nodeId;
+      if (!wikiTitle) return;
 
-      const color = EXPANSION_COLORS[expansionIndex % EXPANSION_COLORS.length];
-      expansionIndex += 1;
+      try {
+        const backlinks = await apiClient.getResponse(wikiTitle);
+        if (backlinks.length === 0) return;
 
-      const anchorDepth = node.data.depth ?? 0;
+        const summaries = await Promise.all(
+          backlinks.map(async (bl) => {
+            const summary = await apiClient.getSummary(bl.title);
+            return apiClient.getItem(summary);
+          })
+        );
 
-      // Fetch summaries for rich tooltip data
-      const summaries = await Promise.all(
-        backlinks.map(async (bl) => {
-          const summary = await apiClient.getSummary(bl.title);
-          return apiClient.getItem(summary);
-        })
-      );
+        const newNodes = summaries.filter(Boolean);
+        const anchorDepth = node.data.depth ?? 0;
+        const newDepth = anchorDepth + 1;
 
-      const newNodes = summaries.filter(Boolean);
-      if (newNodes.length === 0) return;
-
-      // Ensure maxDepth accommodates the new depth
-      const newDepth = anchorDepth + 1;
-      if (newDepth > (appState.graph.maxDepth || 0)) {
-        appState.graph.maxDepth = newDepth;
-      }
-
-      let added = 0;
-      newNodes.forEach((other) => {
-        if (appState.graph.hasNode(other.id)) return;
-
-        appState.graph.addNode(other.id, {
-          depth: newDepth,
-          expansionColor: color,
-          ...other.data,
-        });
-        appState.graph.addLink(node.id, other.id);
-        added += 1;
-      });
-
-      if (added > 0) {
-        appState.progress.reset();
-        appState.progress.startLayout();
-        renderer.reLayout(layoutConfig);
-      }
-    } catch (err) {
-      console.error('[expandNode] failed:', err);
-    }
-  }
-
-  function setupIframeListener(iframeEl, callback) {
-    const messageHandler = (event) => {
-      if (!event.origin.includes("wikipedia.org")) return;
-      callback(event?.data?.subFrameData?.url);
-    };
-    window.addEventListener('message', messageHandler);
-    return () => {
-      window.removeEventListener('message', messageHandler);
-    };
-  }
-
-  onMount(() => {
-    if (iframe) {
-      iframe.onload = () => {
-        const iframeChange = setupIframeListener(iframe, (newUrl) => {
-          iframeUrl = newUrl;
-          const lastpath = decodeURIComponent(iframeUrl.split('/').filter(Boolean).pop() || '/');
-          queryStore.set(lastpath);
-        });
-        return iframeChange;
-      };
-    }
-  });
-
-
-  // ------------------------------------------ tooltip
-  let isTooltipHidden = true;
-  let tooltipHTML = "";
-  let tooltipEl;
-  let hidingTimer: NodeJS.Timeout;
-  let showingTimer: NodeJS.Timeout;
-
-  const ttWidth = 400;
-  const ttHeight = 500;
-
-  function scheduleHide() {
-    // console.log("🚀 sheduleHide")
-
-    return setTimeout(() => {
-      // console.log("🚀🚀 hide")
-
-      isTooltipHidden = true;
-    }, 100);
-  }
-
-  function scheduleShow() {
-    // console.log("🚀 sheduleShow")
-
-    return setTimeout(() => {
-      // console.log("🚀🚀 show")
-
-      isTooltipHidden = false;
-      clearTimeout(showingTimer);
-      showingTimer = null;
-    }, 200);
-  }
-
-  function onEnterTooltip() {
-    // console.log("🚀 ~ onEnterTooltip")
-    clearTimeout(hidingTimer);
-  }
-
-  function onLeaveTooltip() {
-    // console.log("🚀 ~ onLeaveTooltip")
-    hidingTimer = scheduleHide();
-  }
-
-  function showTooltipNode(e) {
-    console.log("🚀 ~ showTooltipNode ~ e", e)
-    // console.log("🚀 ~ showTooltipNode ~ e", visualViewport)
-
-    clearTimeout(hidingTimer);
-
-    if (!e.node) {
-      hidingTimer = scheduleHide();
-      clearTimeout(showingTimer);
-      showingTimer = null;
-      return;
-    }
-
-    if (showingTimer) {
-      return;
-    }
-
-    // ------------------------ direction
-    const center = {
-      x: visualViewport.width / 2,
-      y: visualViewport.height / 2,
-    };
-
-    const sign = {
-      x: center.x - e.x,
-      y: center.y - e.y,
-    };
-
-    const isUp = sign.y < 0;
-    // ----------------------------------
-
-    // TODO: should sanitize?
-    // https://developer.mozilla.org/en-US/docs/Web/API/HTML_Sanitizer_API
-    const data = e.node.data;
-
-    // Book entity: has wikipedia_title and type
-    if (data.wikipedia_title !== undefined) {
-      const typeLabel = data.type ? `<span class="entity-type">${data.type}</span>` : "";
-      let html = "";
-      if (data.wikipedia_title) {
-        html += `<div class="wiki-title"><a href="${data.page_url}" target="_blank">${data.wikipedia_title}</a></div>`;
-      }
-      html += typeLabel;
-      if (data.mentions && data.mentions.length > 1) {
-        html += `<div class="mentions">Also: ${data.mentions.join(", ")}</div>`;
-      }
-      tooltipHTML = `<div class="text">${html}</div>`;
-    } else {
-      // Wikipedia node: has thumbnail and extract_html
-      const { thumbnail, extract_html, page_url } = data;
-      tooltipHTML = thumbnail ? `<img src="${thumbnail.source}" />` : "";
-      const fallbackText = `Can't find a preview. See <a href="${page_url}">the original article</a>`;
-      tooltipHTML += `<div class="text">${extract_html || fallbackText}</div>`;
-    }
-
-    // reuse current tooltip
-    // if (!isTooltipHidden) {
-    //   return
-    // }
-
-    showingTimer = scheduleShow();
-
-    let left: number;
-    requestAnimationFrame(() => {
-      // shift a bit left
-      left = e.x - ttWidth / 3;
-
-      // keep within viewport
-      left = Math.max(10, left);
-      left = Math.min(visualViewport.width - ttWidth - 10, left);
-
-      if (tooltipEl){
-        tooltipEl.style.left = left + "px";
-
-        if (isUp) {
-          tooltipEl.style.top = "unset";
-          tooltipEl.style.bottom = visualViewport.height - e.y + 20 + "px";
-        } else {
-          tooltipEl.style.top = e.y + 20 + "px";
-          tooltipEl.style.bottom = "unset";
+        if (newDepth > (appState.graph.maxDepth || 0)) {
+          appState.graph.maxDepth = newDepth;
         }
-      }
 
-      // ---------------- test: static corner
-      // tooltipEl.style.bottom = 0
-      // tooltipEl.style.top = 'unset'
-      // tooltipEl.style.right = 0
-      // tooltipEl.style.left = 'unset'
-      // ---------------------------------------
+        let added = 0;
+        newNodes.forEach((other) => {
+          if (other && !appState.graph.hasNode(other.id)) {
+            appState.graph.addNode(other.id, {
+              depth: newDepth,
+              ...other.data,
+            });
+            appState.graph.addLink(nodeId, other.id);
+            added += 1;
+          }
+        });
+
+        if (added > 0) {
+          // Re-run community detection
+          detectCommunities(appState.graph.getGraphology());
+          // Re-run layout
+          runForceAtlas2(appState.graph.getGraphology());
+          // Update renderer
+          if (renderer) renderer.updateGraph();
+          circlePackAvailable = hasCommunityData(appState.graph.getGraphology());
+        }
+      } catch (err) {
+        console.error('[expandNode] failed:', err);
+      }
     });
   }
 
-  bus.on("show-tooltip-node", showTooltipNode, {});
-
-  // --------------------------------------- node click
-  function onNodeClick(e) {
-    // Open Wikipedia article for both book entities and wiki nodes
-    const wikiTitle = e.node.data.wikipedia_title || e.node.id;
-    const wikiUrl = e.node.data.page_url || `https://${appState.lang || 'en'}.wikipedia.org/wiki/${encodeURIComponent(wikiTitle)}`;
-    window.open(wikiUrl, '_blank');
-  }
-
-  function onNodeDoubleClick(e) {
-    appState.query = e.node.id;
-    queryStore.set(appState.query);
-    onSearch({ detail: e.node.id });
-  }
-
-  function onNodeClickRight(e) {
-    expandNode(e.node);
-  }
-
-  bus.on("show-details-node", onNodeClick, {});
-  bus.on("node-double-click", onNodeDoubleClick, {});
-  bus.on("node-click-right", onNodeClickRight, {});
-
-  // --------------------------------------- functions
-  async function onSearch(e: CustomEvent) {
-    const q = e.detail;
-    await performSearchWrap(q);
-    renderer.render(appState.graph);
-  }
-
-  async function performSearchWrap(query) {
-    const summary = await apiClient.getSummary(query);
+  async function onSearch(e: CustomEvent | { detail: string }) {
+    const q = typeof e.detail === 'string' ? e.detail : e.detail;
+    const summary = await apiClient.getSummary(q);
     const entryItem = apiClient.getItem(summary);
-    iframe.src = entryItem?.data?.page_url;
-    performSearch(entryItem);
+
+    if (entryItem) {
+      const graph = await performSearch(entryItem);
+
+      // Run community detection
+      detectCommunities(graph.getGraphology());
+
+      // Run layout
+      runForceAtlas2(graph.getGraphology());
+
+      // Init renderer
+      initRenderer();
+
+      // Check if CirclePack is available
+      circlePackAvailable = hasCommunityData(graph.getGraphology());
+    }
   }
 
-  // --------------------------------------- book graph
   function onBookGraph(e: CustomEvent) {
     const graph = e.detail;
     appState.hasGraph = true;
-    appState.progress.reset();
     appState.graph = graph;
-    renderer.render(graph);
-    bus.fire("graph-ready", graph);
+
+    // Book graphs have communities from backend
+    detectCommunities(graph.getGraphology());
+    runForceAtlas2(graph.getGraphology());
+
+    initRenderer();
+    circlePackAvailable = true;
   }
 
+  // Layout controls
+  function toggleFA2() {
+    if (!appState.graph) return;
+    fa2Running = !fa2Running;
+    if (fa2Running) {
+      runForceAtlas2(appState.graph.getGraphology());
+      if (renderer) renderer.updateGraph();
+    }
+  }
+
+  function applyCirclePack() {
+    if (!appState.graph || !circlePackAvailable) return;
+    runCirclePack(appState.graph.getGraphology());
+    if (renderer) renderer.updateGraph();
+    currentLayout = 'circlepack';
+  }
+
+  // Search filter
+  function onFilterInput(value: string) {
+    searchQuery = value;
+    if (renderer) {
+      if (value) {
+        renderer.setSearchQuery(value);
+      } else {
+        renderer.clearSearch();
+      }
+    }
+  }
+
+  function onLabelThreshold(value: number) {
+    labelThreshold = value;
+    if (renderer) renderer.setLabelThreshold(value);
+  }
+
+  function onSizeThreshold(value: number) {
+    sizeThreshold = value;
+    if (renderer) renderer.setSizeThreshold(value);
+  }
+
+  // Handle initial query from URL
+  if (appState.query) {
+    (async () => {
+      const summary = await apiClient.getSummary(appState.query);
+      const entryItem = apiClient.getItem(summary);
+      if (entryItem) {
+        await onSearch({ detail: appState.query });
+      }
+    })();
+  }
+
+  type AppState = typeof appState;
+  watchState((target: AppState, prop: keyof AppState, val: any) => {
+    // Watch for graph changes
+    if (prop === 'graph' && val !== renderer?.['adapter']) {
+      // Graph changed, reinitialize
+    }
+  });
 </script>
 
-<!-- <main class="app-container"> -->
-<WikiSearch on:search={onSearch} />
-<BookUpload on:book-graph={onBookGraph} />
-<LayoutControls
-  bind:visible={layoutControlsVisible}
-  bind:springLength={layoutConfig.springLength}
-  bind:gravity={layoutConfig.gravity}
-  {isReLayouting}
-  on:reLayout={onReLayout}
-  on:settingsChange={(e) => onSettingsChange(e.detail)}
-/>
+<div id="app">
+  <WikiSearch on:search={onSearch} />
 
-
-<div class="iframe-container">
-  <iframe 
-  bind:this={iframe}
-  title="Embedded Content"
-  width="100%"
-></iframe>
-</div>
-
-
-{#if showConfettiContainer}
-<div 
-
-  style="
-  opacity: {showConfetti ? 1 : 0};
-  transition: opacity 1.2s linear;
-  position: fixed;
-  bottom: -40px;
-  left: 0;
-  height: 100vh;
-  width: 100vw;
-  display: flex;
-  justify-content: center;
-  overflow: visible;
-  pointer-events: none;">
-  <!-- <Confetti x={[-5, 5]} y={[0, 0.2]} delay={[0, 2000]} duration=5500 infinite amount=300 fallDistance="100vh" /> -->
-  <!-- <Confetti class="left" x={[1.2, 5.5]} y={[1.25, 2.75]} delay={[0, 2500]} xSpread=0.2 amount=400 /> -->
-  <!-- <Confetti class="right" x={[-1.2, -5.5]} y={[1.25, 2.75]} delay={[0, 2500]} xSpread=0.2 amount=400 /> -->
-  <Confetti
-    class="left"
-    x={[-2.3, 2.3]} y={[1, 3.3]}
-    infinite
-    delay={[0, 1200]} xSpread=0.1 amount=300
-    destroyOnComplete={false}
+  <!-- Graph controls -->
+  <div class="graph-controls">
+    <input
+      type="search"
+      placeholder="search in titles..."
+      value={searchQuery}
+      on:input={(e) => onFilterInput(e.target.value)}
     />
-    <!-- bind:infinite={showConfetti} -->
-    <!-- iterationCount -->
 
+    <div class="sliders">
+      <input
+        type="range"
+        min="0"
+        max="100"
+        value={labelThreshold}
+        on:input={(e) => onLabelThreshold(Number(e.target.value))}
+        title="Label threshold"
+      />
+      <input
+        type="range"
+        min="0"
+        max="10"
+        value={sizeThreshold}
+        on:input={(e) => onSizeThreshold(Number(e.target.value))}
+        title="Size threshold"
+      />
+    </div>
+
+    <div class="layout-buttons">
+      <button class:active={fa2Running} on:click={toggleFA2}>
+        {fa2Running ? 'Force Atlas ◼' : 'Force Atlas ▶'}
+      </button>
+      <button disabled={!circlePackAvailable} on:click={applyCirclePack}>
+        CirclePack
+      </button>
+    </div>
+  </div>
+
+  <!-- Sigma.js container -->
+  <div class="sigma-container" bind:this={sigmaContainer}></div>
+
+  <!-- Book upload -->
+  <BookUpload on:book-graph={onBookGraph} />
+
+  <!-- Links -->
+  <div class="about-links">
+    <a href="#" on:click={() => (aboutVisible = true)}>about</a>
+    <a
+      href="https://github.com/souzadevinicius/wiki-graph"
+      target="_blank"
+      rel="noopener noreferrer"
+    >code</a>
+  </div>
+
+  {#if aboutVisible}
+    <About on:hide={() => (aboutVisible = false)} />
+  {/if}
 </div>
-
-{/if}
-
-<div class="layout-container about-links muted">
-  <a href="#" on:click={() => (aboutVisible = true)}>about</a>
-  <a
-    href="https://github.com/souzadevinicius/wiki-graph"
-    target="_blank"
-    rel="noopener noreferrer">code</a
-  >
-</div>
-
-<div
-  id="tooltip"
-  bind:this={tooltipEl}
-  hidden={isTooltipHidden}
-  on:mouseenter={onEnterTooltip}
-  on:mouseleave={onLeaveTooltip}
->
-  {@html tooltipHTML}
-</div>
-<!-- </main> -->
-
-{#if aboutVisible}
-  <About on:hide={() => (aboutVisible = false)} />
-{/if}
 
 <style lang="postcss">
-  /* order matters */
-  @import "./assets/style.css";
-  @import "normalize.css";
+  @import './assets/style.css';
 
-  /* :global(.confetti-holder) {
+  :global(body) {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #fafafa;
+    color: #333;
+  }
+
+  #app {
     position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
     bottom: 0;
-  } */
-  :global(.confetti) {
-    position: fixed;
-    bottom: 0px;
-    /* left: 0; */
+  }
+
+  .graph-controls {
+    position: absolute;
+    top: 1em;
+    left: 1em;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5em;
+    pointer-events: none;
+  }
+
+  .graph-controls > * {
+    pointer-events: auto;
+  }
+
+  .graph-controls input[type="search"] {
+    padding: 8px 12px;
+    border: 1px solid #dbeafe;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    background: #f5f7fa;
+    outline: none;
+    width: 200px;
+  }
+
+  .graph-controls input[type="search"]:focus {
+    border-color: #4f8cff;
+    box-shadow: 0 2px 8px rgba(79, 140, 255, 0.15);
+  }
+
+  .sliders {
+    display: flex;
+    gap: 0.5em;
+  }
+
+  .sliders input[type="range"] {
+    width: 100px;
+  }
+
+  .layout-buttons {
+    display: flex;
+    gap: 0.5em;
+  }
+
+  .layout-buttons button {
+    background: #f5f7fa;
+    border: 1px solid #dbeafe;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .layout-buttons button:hover {
+    background: #e0e7ff;
+  }
+
+  .layout-buttons button.active {
+    background: #4f8cff;
+    color: white;
+  }
+
+  .layout-buttons button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .sigma-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+  }
+
+  .about-links {
+    position: absolute;
+    top: 1em;
+    right: 1em;
+    z-index: 100;
+    font-size: 0.9rem;
+    opacity: 0.6;
+    display: flex;
+    gap: 1em;
+  }
+
+  .about-links a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .about-links a:hover {
+    color: #4a9eff;
   }
 </style>
