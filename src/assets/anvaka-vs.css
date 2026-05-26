@@ -46,3 +46,16 @@ svg text {
 svg:focus {
   outline: 0;
 }
+
+/* Edges: let JS-computed stroke width and color take effect. */
+#edges path,
+#edges line {
+  stroke-opacity: 1;
+}
+
+/* Highlight on hover */
+#edges path.hovered,
+#edges line.hovered {
+  stroke: #ff7675;
+  stroke-opacity: 1;
+}

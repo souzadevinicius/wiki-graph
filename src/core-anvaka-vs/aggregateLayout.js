@@ -24,11 +24,27 @@ const USE_INTERPOLATE = 2;
 const REMOVE_OVERLAPS = 3;
 const USE_REAL = 4;
 
+// FIX: Node padding added to stop rect edges from touching each other.
+// Inflate each node's bounding box by this many pixels on all sides
+// during overlap removal so nodes have breathing room.
+const NODE_PADDING = 6;
+
+// FIX: More overlap-removal passes gives the algorithm more chances to
+// push dense clusters apart. 3 passes was often not enough for graphs
+// with large variance in node sizes.
+const OVERLAP_PASSES = 7;
+
 /**
  * Orchestrates layout of algorithm between phases.
  */
-export default function createAggregateLayout(graph, progress) {
+export default function createAggregateLayout(graph, progress, physicsConfig = {}) {
   const MAX_DEPTH = graph.maxDepth;
+
+  // FIX: declare rectangles first — createPhysicsLayout's nodeMass
+  // callback closes over it, and calling createPhysicsLayout before
+  // this declaration causes a TDZ error in minified builds.
+  let rectangles = new Map();
+
   let physicsLayout = createPhysicsLayout(graph);
   let fakeLayout = createFakeLayout(graph);
   let interpolateLayout = createInterpolateLayout(fakeLayout, physicsLayout);
@@ -39,15 +55,18 @@ export default function createAggregateLayout(graph, progress) {
   let maxLayoutIterations = 2000;
   let maxLayoutTime = 2000;
   let phase = USE_FAKE;
-  let rectangles = new Map();
 
   var api = eventify({
     step,
     pinNode,
+    unpinNode,
+    setNodePosition,
     getNodePosition,
     addNode,
     setGraphReady,
-    getGraphReady
+    getGraphReady,
+    setLayout,
+    reLayout
   })
 
   return api;
@@ -85,7 +104,6 @@ export default function createAggregateLayout(graph, progress) {
       } while (window.performance.now() - start < 10)
       layoutTime += window.performance.now() - start;
 
-
       if (layoutTime > maxLayoutTime) layoutIterations = maxLayoutIterations;
       const finished = Math.min(1, Math.max(layoutTime / maxLayoutTime, layoutIterations / maxLayoutIterations));
       syncLayouts();
@@ -120,55 +138,100 @@ export default function createAggregateLayout(graph, progress) {
   }
 
   function runOverlapsRemoval() {
-    // TODO: Async?
     let rectangles = getRectangles();
-    removeOverlaps(rectangles);
-    removeOverlaps(rectangles);
-    removeOverlaps(rectangles);
+    // FIX: Run more passes so densely packed areas fully separate.
+    for (let i = 0; i < OVERLAP_PASSES; i++) {
+      removeOverlaps(rectangles);
+    }
     rectangles.forEach((rect, nodeId) => {
       physicsLayout.setNodePosition(nodeId, rect.left - rect.dx, rect.top - rect.dy);
     });
   }
 
-  function getRectangles() {
+function getRectangles() {
     let rects = new Map();
     rectangles.forEach((rect, id) => {
       let pos = physicsLayout.getNodePosition(id);
-      let { width, height } = rect;
+      
+      // FIX: Use a uniform circle radius derived from the text measurement 
+      // instead of raw rectangular boundaries. This keeps padding consistent.
+      const radius = Math.min(rect.width, rect.height) + NODE_PADDING;
+      
       const inflatedRect = new Rect({
         id,
-        left: pos.x + rect.x,
-        top: pos.y + rect.y,
-        dx: rect.x,
-        dy: rect.y,
-        width,
-        height,
+        // Center the overlap rectangle bounds directly around the layout position
+        left: pos.x - radius,
+        top:  pos.y - radius,
+        dx:   -radius,
+        dy:   -radius,
+        width:  radius * 2,
+        height: radius * 2,
       });
       rects.set(id, inflatedRect);
     });
-
     return rects;
+  }
+
+  function setLayout(config) {
+    let sim = physicsLayout.simulator;
+    if (config.springLength !== undefined) {
+      sim.springLength(config.springLength);
+    }
+    if (config.gravity !== undefined) {
+      sim.gravity(config.gravity);
+    }
+  }
+
+  function reLayout(config) {
+    setLayout(config);
+    layoutIterations = 0;
+    layoutTime = 0;
+    phase = USE_FAKE;
+    isGraphReady = true;
   }
 
   function pinNode(node) {
     physicsLayout.pinNode(node, true);
   }
 
-  function createPhysicsLayout() {
+  function unpinNode(node) {
+    physicsLayout.pinNode(node, false);
+  }
+
+  function setNodePosition(nodeId, x, y) {
+    physicsLayout.setNodePosition(nodeId, x, y);
+    fakeLayout.setNodePosition(nodeId, x, y);
+  }
+
+function createPhysicsLayout() {
     return createLayout(graph, {
       timeStep: 10,
       dimensions: 2,
-      gravity: -5,
+      // INCREASED REPULSION: Pull dense clusters apart more forcefully
+      gravity: physicsConfig.gravity || -35, 
       theta: 0.8,
-      springLength: 20, // Increase this value to space nodes further apart
-      springCoeff: 0.01, // Lowering this can reduce the attraction between nodes
+      // LONGER REST LENGTH: Gives connected nodes plenty of room to branch out
+      springLength: physicsConfig.springLength || 140,
+      springCoeff: 0.005,
       dragCoeff: 0.9,
       nodeMass(nodeId) {
         let links = graph.getLinks(nodeId);
         let mul = links ? links.length : 1;
         let node = graph.getNode(nodeId);
         mul *= (MAX_DEPTH - node.data.depth) + 1;
-        return nodeId.length * mul;
+
+        // FIX: Base mass dynamically on the node's radius so larger text circles
+        // push away neighboring nodes much more aggressively.
+        const rect = rectangles.get(nodeId);
+        const radius = rect ? Math.min(rect.width, rect.height) : 10;
+        const sizeFactor = radius / 5; 
+
+        let result = nodeId.length * mul * Math.max(1, sizeFactor);
+        if (typeof result !== 'number' || !isFinite(result)) {
+          console.error('BAD MASS:', nodeId, { MAX_DEPTH, depth: node.data.depth, mul, result });
+          return 1;
+        }
+        return result;
       }
     });
   }
