@@ -81,7 +81,7 @@ export const appState: AppState = new Proxy({
     if (['query', 'lang'].includes(prop as string)) {
       qs.set(prop, val);
     }
-    notifyWatchers(target, prop, val);
+    notifyWatchers(target, prop as keyof AppState, val);
     return result;
   },
 });

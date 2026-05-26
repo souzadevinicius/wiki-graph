@@ -23,7 +23,7 @@
     nodeHover: { name: string; role: string}
   }
 
-  const text: Record<Langs, Description> = {
+  const text: Partial<Record<Langs, Description>> = {
     en: {
       descShort: "a graph client for Wikipedia",
       desc: "Wiki Graph gets your query and takes two steps further to show you the bigger picture of what you're searching for. This way you can see related topics as well as connections between them.",

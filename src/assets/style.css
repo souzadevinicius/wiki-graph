@@ -1,6 +1,3 @@
-@import "./anvaka-vs.css";
-@import "./tooltip.pcss";
-
 @import "./media-tablet.pcss";
 @import "./media-mobile.pcss";
 
@@ -10,18 +7,11 @@
 
   font-size: 100%;
 
-  /* hsl(207deg 5% 35%) */
   --textColor: hsl(220, 10%, 45%);
   --textColorMuted: hsl(220, 5%, 50%);
   --borderColor: hsl(220, 10%, 88%);
-  /* --borderColor: hsl(0deg 2% 86%); */
 
   --borderFocusColor: #aaa;
-
-  /* wikipedia color */
-  /* --c-accent: hsl(220, 60%, 50%);
-  --c-accent-soft: hsl(220, 50%, 80%);
-  --c-secondary: hsl(220, 55%, 75%); */
 
   --c-accent: hsl(342, 44%, 63%);
   --c-accent-soft: hsl(344, 50%, 80%);
@@ -40,24 +30,9 @@
   background-color: hsl(0, 33%, 98%);
 }
 
-.layout-container {
-  margin: 0.8em;
-}
-
 .muted {
-  /* background-color: #fff; */
   opacity: 0.7;
   color: var(--textColorMuted);
-}
-
-.about-links {
-  position: absolute;
-
-  top: 0;
-  right: 0;
-
-  font-size: 0.9rem;
-  opacity: 0.6;
 }
 
 a:hover {
@@ -97,32 +72,4 @@ dd {
 
 *::-webkit-scrollbar-button {
   height: 0;
-}
-
-
-.parent-container {
-  display: flex; /* Use flexbox for layout */
-  flex-direction: row; /* Align children in a row */
-  width: 100%; /* Full width */
-  height: 100vh; /* Full viewport height */
-}
-
-#graphtest {
-  width: 60%;
-}
-
-.iframe-container {
-  position: relative;
-  width: 40%;
-  float:right;
-  height: 100%; /* Full height of the parent */
-}
-
-.iframe-container iframe {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  border: none;
 }

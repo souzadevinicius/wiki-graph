@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { appState, performSearch, watchState } from './lib/state';
-  import { apiClient, isMobile } from './lib/apiClient';
+  import { apiClient } from './lib/apiClient';
   import { queryStore } from './lib/store';
   import { SigmaRenderer } from './lib/sigmaRenderer';
   import { detectCommunities, hasCommunityData } from './lib/communityDetection';
@@ -18,7 +17,6 @@ import { runCirclePack } from './lib/layouts/circlePack';
   // Layout state
   let fa2Running = false;
   let circlePackAvailable = false;
-  let currentLayout = 'fa2';
 
   // Search filter state
   let searchQuery = '';
@@ -157,7 +155,6 @@ import { runCirclePack } from './lib/layouts/circlePack';
     if (!appState.graph || !circlePackAvailable) return;
     runCirclePack(appState.graph.getGraphology());
     if (renderer) renderer.updateGraph();
-    currentLayout = 'circlepack';
   }
 
   // Search filter
@@ -180,6 +177,19 @@ import { runCirclePack } from './lib/layouts/circlePack';
   function onSizeThreshold(value: number) {
     sizeThreshold = value;
     if (renderer) renderer.setSizeThreshold(value);
+  }
+
+  // Event handlers for template
+  function handleFilterInput(e: Event) {
+    onFilterInput((e.target as HTMLInputElement).value);
+  }
+
+  function handleLabelThreshold(e: Event) {
+    onLabelThreshold(Number((e.target as HTMLInputElement).value));
+  }
+
+  function handleSizeThreshold(e: Event) {
+    onSizeThreshold(Number((e.target as HTMLInputElement).value));
   }
 
   // Handle initial query from URL
@@ -211,7 +221,7 @@ import { runCirclePack } from './lib/layouts/circlePack';
       type="search"
       placeholder="search in titles..."
       value={searchQuery}
-      on:input={(e) => onFilterInput(e.target.value)}
+      on:input={handleFilterInput}
     />
 
     <div class="sliders">
@@ -220,7 +230,7 @@ import { runCirclePack } from './lib/layouts/circlePack';
         min="0"
         max="100"
         value={labelThreshold}
-        on:input={(e) => onLabelThreshold(Number(e.target.value))}
+        on:input={handleLabelThreshold}
         title="Label threshold"
       />
       <input
@@ -228,7 +238,7 @@ import { runCirclePack } from './lib/layouts/circlePack';
         min="0"
         max="10"
         value={sizeThreshold}
-        on:input={(e) => onSizeThreshold(Number(e.target.value))}
+        on:input={handleSizeThreshold}
         title="Size threshold"
       />
     </div>

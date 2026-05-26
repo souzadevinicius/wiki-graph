@@ -1,5 +1,5 @@
 import Sigma from 'sigma';
-import { Graph as GraphologyGraph } from 'graphology';
+import type Graph from 'graphology';
 import { GraphologyAdapter } from './graphologyAdapter';
 
 export interface SigmaRendererOptions {
@@ -46,7 +46,7 @@ export class SigmaRenderer {
 
   updateGraph(): void {
     if (!this.sigma) return;
-    this.applyStyles(this.sigma.graph as unknown as GraphologyGraph);
+    this.applyStyles(this.adapter.getGraphology());
     this.sigma.refresh();
   }
 
@@ -64,19 +64,19 @@ export class SigmaRenderer {
 
   setSearchQuery(query: string): void {
     this.searchQuery = query.toLowerCase();
-    this.applyStyles(this.sigma?.graph as unknown as GraphologyGraph);
+    this.applyStyles(this.adapter.getGraphology());
     if (this.sigma) this.sigma.refresh();
   }
 
   clearSearch(): void {
     this.searchQuery = '';
-    this.applyStyles(this.sigma?.graph as unknown as GraphologyGraph);
+    this.applyStyles(this.adapter.getGraphology());
     if (this.sigma) this.sigma.refresh();
   }
 
   setHoveredNode(nodeId: string | null): void {
     this.hoveredNode = nodeId;
-    this.applyStyles(this.sigma?.graph as unknown as GraphologyGraph);
+    this.applyStyles(this.adapter.getGraphology());
     if (this.sigma) this.sigma.refresh();
   }
 
@@ -91,15 +91,14 @@ export class SigmaRenderer {
     return this.sigma;
   }
 
-  private applyStyles(graph: GraphologyGraph): void {
+  private applyStyles(graph: Graph): void {
     const dimColor = '#e3e3e3';
-    const highlightColor = null; // Use community color
 
-    graph.forEachNode((nodeId, attributes) => {
+    graph.forEachNode((nodeId: string, attributes: Record<string, any>) => {
       const degree = graph.degree(nodeId);
       const isHovered = nodeId === this.hoveredNode;
       const matchesSearch = this.searchQuery &&
-        (nodeId as string).toLowerCase().includes(this.searchQuery);
+        nodeId.toLowerCase().includes(this.searchQuery);
       const isNeighbor = this.hoveredNode && graph.neighbors(this.hoveredNode).includes(nodeId);
 
       // Size based on degree
@@ -107,45 +106,43 @@ export class SigmaRenderer {
 
       // Check size threshold
       if (degree < this.sizeThreshold) {
-        attributes.hidden = true;
+        graph.setNodeAttribute(nodeId, 'hidden', true);
         return;
       }
-      attributes.hidden = false;
+      graph.setNodeAttribute(nodeId, 'hidden', false);
 
       // Label
-      attributes.label = nodeId;
+      graph.setNodeAttribute(nodeId, 'label', nodeId);
 
       // Color
       if (this.hoveredNode) {
         if (isHovered || isNeighbor) {
-          attributes.color = attributes.community_color || '#4a9eff';
+          graph.setNodeAttribute(nodeId, 'color', attributes.community_color || '#4a9eff');
         } else {
-          attributes.color = dimColor;
-          attributes.label = ''; // Hide labels for dimmed nodes
+          graph.setNodeAttribute(nodeId, 'color', dimColor);
+          graph.setNodeAttribute(nodeId, 'label', '');
         }
       } else if (this.searchQuery) {
         if (matchesSearch) {
-          attributes.color = attributes.community_color || '#4a9eff';
+          graph.setNodeAttribute(nodeId, 'color', attributes.community_color || '#4a9eff');
         } else {
-          attributes.color = dimColor;
-          attributes.label = '';
+          graph.setNodeAttribute(nodeId, 'color', dimColor);
+          graph.setNodeAttribute(nodeId, 'label', '');
         }
       } else {
-        attributes.color = attributes.community_color || '#4a9eff';
+        graph.setNodeAttribute(nodeId, 'color', attributes.community_color || '#4a9eff');
       }
 
       // Apply size
-      attributes.size = size;
+      graph.setNodeAttribute(nodeId, 'size', size);
     });
 
     // Style edges
-    graph.forEachEdge((edgeId, attributes, source, target) => {
-      const sourceAttrs = graph.getNodeAttributes(source);
-      const targetAttrs = graph.getNodeAttributes(target);
+    graph.forEachEdge((_edgeId: string, _attrs: Record<string, any>, source: string, target: string) => {
+      const sourceAttrs = graph.getNodeAttributes(source) as Record<string, any>;
 
       // Edge color matches source node's community
       const sourceColor = sourceAttrs.community_color || '#4a9eff';
-      const targetColor = targetAttrs.community_color || '#4a9eff';
 
       if (this.hoveredNode) {
         const isNeighborSource = source === this.hoveredNode;
@@ -154,26 +151,26 @@ export class SigmaRenderer {
           graph.neighbors(this.hoveredNode).includes(target);
 
         if (isNeighborSource || isNeighborTarget || isNeighbor) {
-          graph.setEdgeAttribute(edgeId, 'color', sourceColor);
-          graph.setEdgeAttribute(edgeId, 'hidden', false);
+          graph.setEdgeAttribute(_edgeId, 'color', sourceColor);
+          graph.setEdgeAttribute(_edgeId, 'hidden', false);
         } else {
-          graph.setEdgeAttribute(edgeId, 'color', dimColor);
-          graph.setEdgeAttribute(edgeId, 'hidden', false);
+          graph.setEdgeAttribute(_edgeId, 'color', dimColor);
+          graph.setEdgeAttribute(_edgeId, 'hidden', false);
         }
       } else if (this.searchQuery) {
-        const sourceMatches = (source as string).toLowerCase().includes(this.searchQuery);
-        const targetMatches = (target as string).toLowerCase().includes(this.searchQuery);
+        const sourceMatches = source.toLowerCase().includes(this.searchQuery);
+        const targetMatches = target.toLowerCase().includes(this.searchQuery);
 
         if (sourceMatches || targetMatches) {
-          graph.setEdgeAttribute(edgeId, 'color', sourceColor);
+          graph.setEdgeAttribute(_edgeId, 'color', sourceColor);
         } else {
-          graph.setEdgeAttribute(edgeId, 'color', dimColor);
+          graph.setEdgeAttribute(_edgeId, 'color', dimColor);
         }
       } else {
-        graph.setEdgeAttribute(edgeId, 'color', sourceColor);
+        graph.setEdgeAttribute(_edgeId, 'color', sourceColor);
       }
 
-      graph.setEdgeAttribute(edgeId, 'size', 0.5);
+      graph.setEdgeAttribute(_edgeId, 'size', 0.5);
     });
   }
 
@@ -188,15 +185,15 @@ export class SigmaRenderer {
     return String(node);
   }
 
-  private setupEvents(graph: GraphologyGraph): void {
+  private setupEvents(graph: Graph): void {
     if (!this.sigma) return;
 
     // Click handler - opens Wikipedia in new tab
-    this.sigma.on('clickNode', (event) => {
+    this.sigma.on('clickNode', (event: any) => {
       const nodeId = this.getNodeId(event);
 
       // Right-click: fire expand event
-      if (event.event && event.event.button === 2) {
+      if (event.event && (event.event as any).button === 2) {
         this.container.dispatchEvent(new CustomEvent('expand', { detail: nodeId }));
         event.preventSigmaDefault();
         return;
@@ -204,9 +201,9 @@ export class SigmaRenderer {
 
       // Left-click: open Wikipedia
       try {
-        const nodeData = graph.getNodeAttributes(nodeId);
-        const wikiTitle = (nodeData as any).wikipedia_title || nodeId;
-        const wikiUrl = (nodeData as any).page_url ||
+        const nodeData = graph.getNodeAttributes(nodeId) as Record<string, any>;
+        const wikiTitle = nodeData.wikipedia_title || nodeId;
+        const wikiUrl = nodeData.page_url ||
           `https://en.wikipedia.org/wiki/${encodeURIComponent(wikiTitle)}`;
         window.open(wikiUrl, '_blank');
       } catch (err) {
@@ -217,14 +214,14 @@ export class SigmaRenderer {
     });
 
     // Double-click handler - fire custom event
-    this.sigma.on('doubleClickNode', (event) => {
+    this.sigma.on('doubleClickNode', (event: any) => {
       const nodeId = this.getNodeId(event);
       this.container.dispatchEvent(new CustomEvent('navigate', { detail: nodeId }));
       event.preventSigmaDefault();
     });
 
     // Hover handlers
-    this.sigma.on('enterNode', (event) => {
+    this.sigma.on('enterNode', (event: any) => {
       this.setHoveredNode(this.getNodeId(event));
     });
 
