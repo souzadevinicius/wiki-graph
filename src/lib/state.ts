@@ -92,7 +92,7 @@ qs.onChange((newState) => {
 
 export { qs };
 
-export async function performSearch(entryItem: { id: string; data: any }) {
+export async function performSearch(entryItem: { id: string; data: any }, fetchSummaries: boolean = false) {
   console.log('[performSearch] entryItem:', entryItem);
 
   appState.hasGraph = true;
@@ -113,11 +113,14 @@ export async function performSearch(entryItem: { id: string; data: any }) {
   try {
     const backlinks = await apiClient.getResponse(entryItem.id);
 
-    // Fetch summaries for rich data
+    // Fetch summaries for rich data (optional — skipped when disabled)
     const summaries = await Promise.all(
       backlinks.map(async (bl) => {
-        const summary = await apiClient.getSummary(bl.title);
-        return apiClient.getItem(summary);
+        if (fetchSummaries) {
+          const summary = await apiClient.getSummary(bl.title);
+          return apiClient.getItem(summary);
+        }
+        return { id: bl.title, data: { description: '', extract_html: bl.extract || '', thumbnail: bl.thumbnail?.source || null } };
       })
     );
 

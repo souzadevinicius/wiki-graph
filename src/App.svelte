@@ -25,6 +25,9 @@
   let labelThreshold = 30;
   let sizeThreshold = 0;
 
+  // API options
+  let fetchSummaries = false;
+
   // Initialize
   const DEFAULT_LANG = 'en';
   apiClient.setLang(appState.lang || DEFAULT_LANG);
@@ -68,8 +71,11 @@
 
       const summaries = await Promise.all(
         backlinks.map(async (bl) => {
-          const summary = await apiClient.getSummary(bl.title);
-          return apiClient.getItem(summary);
+          if (fetchSummaries) {
+            const summary = await apiClient.getSummary(bl.title);
+            return apiClient.getItem(summary);
+          }
+          return { id: bl.title, data: { description: '', extract_html: bl.extract || '', thumbnail: bl.thumbnail?.source || null } };
         })
       );
 
@@ -124,10 +130,10 @@
   /** Handle search from WikiSearch — replace the current graph. */
   async function onSearch(e: CustomEvent | { detail: string }) {
     const q = typeof e.detail === 'string' ? e.detail : e.detail;
-    const summary = await apiClient.getSummary(q);
-    const entryItem = apiClient.getItem(summary);
+    const summary = fetchSummaries ? await apiClient.getSummary(q) : null;
+    const entryItem = summary ? apiClient.getItem(summary) : { id: q, data: {} };
     if (entryItem) {
-      const graph = await performSearch(entryItem);
+      const graph = await performSearch(entryItem, fetchSummaries);
       detectCommunities(graph.getGraphology());
       runForceAtlas2(graph.getGraphology());
       initRenderer();
@@ -140,10 +146,10 @@
     const nodeId = e.detail;
     appState.query = nodeId;
     queryStore.set(appState.query);
-    const summary = await apiClient.getSummary(nodeId);
-    const entryItem = apiClient.getItem(summary);
+    const summary = fetchSummaries ? await apiClient.getSummary(nodeId) : null;
+    const entryItem = summary ? apiClient.getItem(summary) : { id: nodeId, data: {} };
     if (entryItem) {
-      const graph = await performSearch(entryItem);
+      const graph = await performSearch(entryItem, fetchSummaries);
       detectCommunities(graph.getGraphology());
       runForceAtlas2(graph.getGraphology());
       initRenderer();
@@ -279,6 +285,11 @@
         CirclePack
       </button>
     </div>
+
+    <label class="summary-toggle">
+      <input type="checkbox" bind:checked={fetchSummaries} />
+      Fetch Wikipedia summaries
+    </label>
   </div>
 
   <!-- Sigma.js container -->
@@ -387,6 +398,20 @@
   .layout-buttons button:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+
+  .summary-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    font-size: 0.8rem;
+    color: #666;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .summary-toggle input[type="checkbox"] {
+    cursor: pointer;
   }
 
   .sigma-container {
