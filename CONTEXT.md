@@ -41,7 +41,7 @@ _Avoid_: cluster, group, partition
 Force-directed layout algorithm that arranges nodes based on graph topology. Tunable parameters are hidden from the user; it runs on/off via a toggle button.
 
 **CirclePack**:
-Hierarchical layout that packs **community** groups into nested circles. Available only for book entity graphs (where communities are computed).
+Hierarchical layout that packs **community** groups into nested circles. Available for any graph with **community** data (both book entity and Wikipedia graphs).
 
 ### Visual
 
@@ -77,7 +77,7 @@ User-adjustable slider that controls the minimum rendered size at which node lab
 > **Domain expert:** "No — **navigate** replaces the entire graph. **Search from Wikipedia** adds to it."
 
 > **Dev:** "Should the CirclePack layout be available for Wikipedia graphs?"
-> **Domain expert:** "Only for book entity graphs — those have **community** data from the backend. Wikipedia graphs don't have communities, so CirclePack stays disabled."
+> **Domain expert:** "Yes — both book entity graphs and Wikipedia graphs have **community** data now. CirclePack is available wherever communities exist."
 
 ## Flagged ambiguities
 

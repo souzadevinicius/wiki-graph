@@ -19,7 +19,7 @@ export function runForceAtlas2(
 
   // Set initial random positions if not present
   graph.forEachNode((nodeId, attributes) => {
-    if (attributes.x === undefined || attributes.y === undefined) {
+    if (!Number.isFinite(attributes.x) || !Number.isFinite(attributes.y)) {
       graph.setNodeAttribute(nodeId, 'x', Math.random() * 100 - 50);
       graph.setNodeAttribute(nodeId, 'y', Math.random() * 100 - 50);
     }
@@ -38,7 +38,7 @@ export function runForceAtlas2(
 
   // Apply positions
   Object.entries(result).forEach(([nodeId, pos]) => {
-    if (pos.x !== null && pos.y !== null) {
+    if (Number.isFinite(pos.x) && Number.isFinite(pos.y)) {
       graph.setNodeAttribute(nodeId, 'x', pos.x);
       graph.setNodeAttribute(nodeId, 'y', pos.y);
     }

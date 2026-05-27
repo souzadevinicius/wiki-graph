@@ -23,6 +23,7 @@ export interface NodeData {
 export class GraphologyAdapter extends EventEmitter {
   public inner: Graph;
   public maxDepth: number = 0;
+  private nextFallbackPosition = 0;
 
   constructor() {
     super();
@@ -30,7 +31,7 @@ export class GraphologyAdapter extends EventEmitter {
   }
 
   addNode(id: string, data: NodeData = {}): void {
-    this.inner.addNode(id, data);
+    this.inner.addNode(id, this.withPosition(data));
     this.emit('changed', [{ changeType: 'add', node: this.getNode(id) }]);
   }
 
@@ -82,9 +83,26 @@ export class GraphologyAdapter extends EventEmitter {
   clear(): void {
     this.inner.clear();
     this.maxDepth = 0;
+    this.nextFallbackPosition = 0;
   }
 
   getGraphology(): Graph {
     return this.inner;
+  }
+
+  private withPosition(data: NodeData): NodeData {
+    if (Number.isFinite(data.x) && Number.isFinite(data.y)) {
+      return data;
+    }
+
+    const angle = this.nextFallbackPosition * 2.399963229728653;
+    const radius = 20 + Math.sqrt(this.nextFallbackPosition) * 12;
+    this.nextFallbackPosition += 1;
+
+    return {
+      ...data,
+      x: Number.isFinite(data.x) ? data.x : Math.cos(angle) * radius,
+      y: Number.isFinite(data.y) ? data.y : Math.sin(angle) * radius,
+    };
   }
 }

@@ -1,11 +1,12 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { appState, performSearch, watchState } from './lib/state';
   import { apiClient } from './lib/apiClient';
   import { queryStore } from './lib/store';
   import { SigmaRenderer } from './lib/sigmaRenderer';
   import { detectCommunities, hasCommunityData } from './lib/communityDetection';
   import { runForceAtlas2 } from './lib/layouts/forceAtlas2';
-import { runCirclePack } from './lib/layouts/circlePack';
+  import { runCirclePack } from './lib/layouts/circlePack';
   import BookUpload from './lib/BookUpload.svelte';
   import About from './lib/About.svelte';
   import WikiSearch from './lib/WikiSearch.svelte';
@@ -13,6 +14,7 @@ import { runCirclePack } from './lib/layouts/circlePack';
   let sigmaContainer: HTMLDivElement;
   let renderer: SigmaRenderer | null = null;
   let aboutVisible = false;
+  let eventListenersAttached = false;
 
   // Layout state
   let fa2Running = false;
@@ -30,100 +32,121 @@ import { runCirclePack } from './lib/layouts/circlePack';
   function initRenderer() {
     if (!sigmaContainer || !appState.graph) return;
 
+    renderer?.kill();
+    renderer = null;
+    sigmaContainer.replaceChildren();
+
     renderer = new SigmaRenderer(appState.graph, {
       container: sigmaContainer,
       labelThreshold,
       sizeThreshold,
+      lang: appState.lang,
     });
 
     renderer.render();
     setupEventListeners();
   }
 
-  function setupEventListeners() {
-    if (!sigmaContainer) return;
-
-    // Navigate (double-click)
-    sigmaContainer.addEventListener('navigate', (e: CustomEvent) => {
-      const nodeId = e.detail;
-      appState.query = nodeId;
-      queryStore.set(appState.query);
-      onSearch({ detail: nodeId });
-    });
-
-    // Expand (right-click)
-    sigmaContainer.addEventListener('expand', async (e: CustomEvent) => {
-      const nodeId = e.detail;
-      if (!appState.graph) return;
-
-      const node = appState.graph.getNode(nodeId);
-      const wikiTitle = node.data.wikipedia_title || nodeId;
-      if (!wikiTitle) return;
-
-      try {
-        const backlinks = await apiClient.getResponse(wikiTitle);
-        if (backlinks.length === 0) return;
-
-        const summaries = await Promise.all(
-          backlinks.map(async (bl) => {
-            const summary = await apiClient.getSummary(bl.title);
-            return apiClient.getItem(summary);
-          })
-        );
-
-        const newNodes = summaries.filter(Boolean);
-        const anchorDepth = node.data.depth ?? 0;
-        const newDepth = anchorDepth + 1;
-
-        if (newDepth > (appState.graph.maxDepth || 0)) {
-          appState.graph.maxDepth = newDepth;
-        }
-
-        let added = 0;
-        newNodes.forEach((other) => {
-          if (other && !appState.graph.hasNode(other.id)) {
-            appState.graph.addNode(other.id, {
-              depth: newDepth,
-              ...other.data,
-            });
-            appState.graph.addLink(nodeId, other.id);
-            added += 1;
-          }
-        });
-
-        if (added > 0) {
-          // Re-run community detection
-          detectCommunities(appState.graph.getGraphology());
-          // Re-run layout
-          runForceAtlas2(appState.graph.getGraphology());
-          // Update renderer
-          if (renderer) renderer.updateGraph();
-          circlePackAvailable = hasCommunityData(appState.graph.getGraphology());
-        }
-      } catch (err) {
-        console.error('[expandNode] failed:', err);
-      }
-    });
+  function handleNavigate(e: CustomEvent) {
+    onNavigate(e);
   }
 
+  async function handleExpand(e: CustomEvent) {
+    const nodeId = e.detail;
+    if (!appState.graph) return;
+
+    appState.query = nodeId;
+    queryStore.set(nodeId);
+
+    const node = appState.graph.getNode(nodeId);
+    const wikiTitle = node.data.wikipedia_title || nodeId;
+    if (!wikiTitle) return;
+
+    try {
+      const backlinks = await apiClient.getResponse(wikiTitle);
+      if (backlinks.length === 0) return;
+
+      const summaries = await Promise.all(
+        backlinks.map(async (bl) => {
+          const summary = await apiClient.getSummary(bl.title);
+          return apiClient.getItem(summary);
+        })
+      );
+
+      const newNodes = summaries.filter(Boolean);
+      const anchorDepth = node.data.depth ?? 0;
+      const newDepth = anchorDepth + 1;
+      const connectsToRenderedGraph = appState.graph.hasNode(nodeId) || newNodes.some((other) =>
+        other ? appState.graph!.hasNode(other.id) : false
+      );
+
+      if (!connectsToRenderedGraph) return;
+
+      let added = 0;
+      newNodes.forEach((other) => {
+        if (!other) return;
+
+        if (!appState.graph!.hasNode(other.id)) {
+          appState.graph!.addNode(other.id, {
+            depth: newDepth,
+            ...other.data,
+          });
+          added += 1;
+        }
+
+        appState.graph!.addLink(nodeId, other.id);
+      });
+
+      if (added > 0) {
+        detectCommunities(appState.graph.getGraphology());
+        runForceAtlas2(appState.graph.getGraphology());
+        initRenderer();
+        circlePackAvailable = hasCommunityData(appState.graph.getGraphology());
+      } else if (renderer) {
+        renderer.updateGraph();
+      }
+    } catch (err) {
+      console.error('[expandNode] failed:', err);
+    }
+  }
+
+  function setupEventListeners() {
+    if (!sigmaContainer || eventListenersAttached) return;
+    eventListenersAttached = true;
+
+    // Navigate (double-click) — replace graph
+    sigmaContainer.addEventListener('navigate', handleNavigate as EventListener);
+
+    // Expand (middle-click)
+    sigmaContainer.addEventListener('expand', handleExpand as EventListener);
+  }
+
+  /** Handle search from WikiSearch — replace the current graph. */
   async function onSearch(e: CustomEvent | { detail: string }) {
     const q = typeof e.detail === 'string' ? e.detail : e.detail;
     const summary = await apiClient.getSummary(q);
     const entryItem = apiClient.getItem(summary);
-
     if (entryItem) {
       const graph = await performSearch(entryItem);
-
-      // Run community detection
       detectCommunities(graph.getGraphology());
-
-      // Run layout
       runForceAtlas2(graph.getGraphology());
-
-      // Init renderer
       initRenderer();
+      circlePackAvailable = hasCommunityData(graph.getGraphology());
+    }
+  }
 
-      // Check if CirclePack is available
+  /** Handle navigate (double-click) — always replaces the graph. */
+  async function onNavigate(e: CustomEvent) {
+    const nodeId = e.detail;
+    appState.query = nodeId;
+    queryStore.set(appState.query);
+    const summary = await apiClient.getSummary(nodeId);
+    const entryItem = apiClient.getItem(summary);
+    if (entryItem) {
+      const graph = await performSearch(entryItem);
+      detectCommunities(graph.getGraphology());
+      runForceAtlas2(graph.getGraphology());
+      initRenderer();
       circlePackAvailable = hasCommunityData(graph.getGraphology());
     }
   }
@@ -195,13 +218,18 @@ import { runCirclePack } from './lib/layouts/circlePack';
   // Handle initial query from URL
   if (appState.query) {
     (async () => {
-      const summary = await apiClient.getSummary(appState.query);
-      const entryItem = apiClient.getItem(summary);
-      if (entryItem) {
-        await onSearch({ detail: appState.query });
-      }
+      await onSearch({ detail: appState.query });
     })();
   }
+
+  onDestroy(() => {
+    renderer?.kill();
+
+    if (sigmaContainer && eventListenersAttached) {
+      sigmaContainer.removeEventListener('navigate', handleNavigate as EventListener);
+      sigmaContainer.removeEventListener('expand', handleExpand as EventListener);
+    }
+  });
 
   type AppState = typeof appState;
   watchState((target: AppState, prop: keyof AppState, val: any) => {
@@ -261,7 +289,7 @@ import { runCirclePack } from './lib/layouts/circlePack';
 
   <!-- Links -->
   <div class="about-links">
-    <a href="#" on:click={() => (aboutVisible = true)}>about</a>
+    <button class="about-link" on:click={() => (aboutVisible = true)}>about</button>
     <a
       href="https://github.com/souzadevinicius/wiki-graph"
       target="_blank"
@@ -380,12 +408,19 @@ import { runCirclePack } from './lib/layouts/circlePack';
     gap: 1em;
   }
 
-  .about-links a {
+  .about-links a,
+  .about-links .about-link {
     color: inherit;
     text-decoration: none;
+    background: none;
+    border: none;
+    font: inherit;
+    cursor: pointer;
+    padding: 0;
   }
 
-  .about-links a:hover {
+  .about-links a:hover,
+  .about-links .about-link:hover {
     color: #4a9eff;
   }
 </style>

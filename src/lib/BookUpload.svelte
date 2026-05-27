@@ -207,14 +207,14 @@
     bottom: 20px;
     right: 20px;
     z-index: 100;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color, #333);
+    background: #ffffff;
+    border: 1px solid #dbeafe;
     border-radius: 8px;
     padding: 12px 16px;
     font-size: 14px;
     min-width: 280px;
     max-width: 400px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 2px 8px rgba(79, 140, 255, 0.12);
   }
 
   .upload-controls {
@@ -226,7 +226,7 @@
   .file-btn {
     display: block;
     padding: 8px 12px;
-    background: var(--accent, #4a9eff);
+    background: #4f8cff;
     color: white;
     border-radius: 4px;
     cursor: pointer;
@@ -244,9 +244,10 @@
     width: 100%;
     padding: 6px 8px;
     border-radius: 4px;
-    border: 1px solid var(--border-color, #333);
-    background: var(--bg-secondary, #1a1a2e);
-    color: var(--text-primary, #e0e0e0);
+    border: 1px solid #dbeafe;
+    background: #f5f7fa;
+    color: #333;
+    outline: none;
   }
 
   .wiki-toggle {
@@ -254,7 +255,7 @@
     align-items: center;
     gap: 8px;
     font-size: 12px;
-    color: var(--text-secondary, #888);
+    color: #888;
     cursor: pointer;
     user-select: none;
   }
@@ -262,13 +263,13 @@
   .wiki-toggle input[type="checkbox"] {
     width: 14px;
     height: 14px;
-    accent-color: var(--accent, #4a9eff);
+    accent-color: #4f8cff;
     cursor: pointer;
   }
 
   .upload-btn {
     padding: 8px 12px;
-    background: var(--accent, #4a9eff);
+    background: #4f8cff;
     color: white;
     border: none;
     border-radius: 4px;
@@ -292,8 +293,8 @@
   .progress-spinner {
     width: 24px;
     height: 24px;
-    border: 3px solid var(--border-color, #333);
-    border-top-color: var(--accent, #4a9eff);
+    border: 3px solid #dbeafe;
+    border-top-color: #4f8cff;
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
@@ -307,13 +308,13 @@
   .progress-text {
     text-align: center;
     font-size: 12px;
-    color: var(--text-secondary, #888);
+    color: #888;
   }
 
   .progress-text .stage {
     display: block;
     font-weight: 600;
-    color: var(--text-primary, #e0e0e0);
+    color: #333;
     text-transform: capitalize;
   }
 
@@ -346,7 +347,7 @@
 
   .file-name {
     font-size: 12px;
-    color: var(--text-secondary, #888);
+    color: #888;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -356,7 +357,7 @@
   .back-btn {
     background: none;
     border: none;
-    color: var(--accent, #4a9eff);
+    color: #4f8cff;
     cursor: pointer;
     font-size: 12px;
   }
@@ -368,12 +369,16 @@
 
   .toggle-all-btn {
     padding: 6px 8px;
-    background: var(--bg-secondary, #1a1a2e);
-    color: var(--text-primary, #e0e0e0);
-    border: 1px solid var(--border-color, #333);
+    background: #f5f7fa;
+    color: #333;
+    border: 1px solid #dbeafe;
     border-radius: 4px;
     cursor: pointer;
     font-size: 12px;
+  }
+
+  .toggle-all-btn:hover {
+    background: #e0e7ff;
   }
 
   .chapter-list {
@@ -394,11 +399,12 @@
   }
 
   .chapter-item:hover {
-    background: var(--bg-secondary, #1a1a2e);
+    background: #f5f7fa;
   }
 
   .chapter-item input[type="checkbox"] {
     margin-top: 2px;
+    accent-color: #4f8cff;
   }
 
   .chapter-info {
@@ -412,11 +418,12 @@
   .chapter-label {
     font-size: 13px;
     font-weight: 500;
+    color: #333;
   }
 
   .chapter-preview {
     font-size: 11px;
-    color: var(--text-secondary, #888);
+    color: #888;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

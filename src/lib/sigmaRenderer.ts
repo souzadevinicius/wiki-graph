@@ -6,6 +6,7 @@ export interface SigmaRendererOptions {
   container: HTMLElement;
   labelThreshold: number;
   sizeThreshold: number;
+  lang?: string;
 }
 
 export class SigmaRenderer {
@@ -14,6 +15,7 @@ export class SigmaRenderer {
   private container: HTMLElement;
   private labelThreshold: number;
   private sizeThreshold: number;
+  private lang: string;
   private hoveredNode: string | null = null;
   private searchQuery: string = '';
 
@@ -22,6 +24,7 @@ export class SigmaRenderer {
     this.container = options.container;
     this.labelThreshold = options.labelThreshold || 30;
     this.sizeThreshold = options.sizeThreshold || 0;
+    this.lang = options.lang || 'en';
   }
 
   render(): void {
@@ -185,32 +188,45 @@ export class SigmaRenderer {
     return String(node);
   }
 
+  private getMouseButton(event: any): number | null {
+    const mouseEvent = event?.event?.original || event?.event;
+    return typeof mouseEvent?.button === 'number' ? mouseEvent.button : null;
+  }
+
+  private preventBrowserDefault(event: any): void {
+    event.preventSigmaDefault?.();
+    event.event?.original?.preventDefault?.();
+    event.event?.original?.stopPropagation?.();
+  }
+
   private setupEvents(graph: Graph): void {
     if (!this.sigma) return;
+
+    // Middle-click handler - append connected neighbors
+    this.sigma.on('downNode', (event: any) => {
+      if (this.getMouseButton(event) !== 1) return;
+
+      const nodeId = this.getNodeId(event);
+      this.container.dispatchEvent(new CustomEvent('expand', { detail: nodeId }));
+      this.preventBrowserDefault(event);
+    });
 
     // Click handler - opens Wikipedia in new tab
     this.sigma.on('clickNode', (event: any) => {
       const nodeId = this.getNodeId(event);
-
-      // Right-click: fire expand event
-      if (event.event && (event.event as any).button === 2) {
-        this.container.dispatchEvent(new CustomEvent('expand', { detail: nodeId }));
-        event.preventSigmaDefault();
-        return;
-      }
 
       // Left-click: open Wikipedia
       try {
         const nodeData = graph.getNodeAttributes(nodeId) as Record<string, any>;
         const wikiTitle = nodeData.wikipedia_title || nodeId;
         const wikiUrl = nodeData.page_url ||
-          `https://en.wikipedia.org/wiki/${encodeURIComponent(wikiTitle)}`;
+          `https://${this.lang}.wikipedia.org/wiki/${encodeURIComponent(wikiTitle)}`;
         window.open(wikiUrl, '_blank');
       } catch (err) {
         console.error('[sigmaRenderer] clickNode: failed to get node data for', nodeId, err);
       }
 
-      event.preventSigmaDefault();
+      this.preventBrowserDefault(event);
     });
 
     // Double-click handler - fire custom event

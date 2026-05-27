@@ -165,7 +165,7 @@
   }
 
 
-  .footer, .p-last {
+  .p-last {
     margin-top: 2.5em;
   }
 
