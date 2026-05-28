@@ -45,6 +45,10 @@ export class GraphologyAdapter extends EventEmitter {
     return this.inner.hasNode(id);
   }
 
+  hasLink(source: string, target: string): boolean {
+    return this.inner.hasEdge(source, target);
+  }
+
   getNode(id: string) {
     const data = this.inner.getNodeAttributes(id) as NodeData;
     return { id, data };

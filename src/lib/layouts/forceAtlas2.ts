@@ -29,9 +29,10 @@ export function runForceAtlas2(
   const result = forceAtlas2(graph, {
     iterations,
     settings: {
-      adjustSizes: true,
-      scalingRatio: 10,
-      gravity: 0.5,
+      adjustSizes: false,
+      scalingRatio: 25,
+      gravity: 0.1,
+      strongGravityMode: false,
       barnesHutOptimize: true,
     },
   });

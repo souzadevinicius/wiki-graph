@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { appState, performSearch, watchState } from './lib/state';
+  import { appState, performSearch, addToGraph, watchState } from './lib/state';
   import { apiClient } from './lib/apiClient';
   import { queryStore } from './lib/store';
   import { SigmaRenderer } from './lib/sigmaRenderer';
   import { detectCommunities, hasCommunityData } from './lib/communityDetection';
   import { runForceAtlas2 } from './lib/layouts/forceAtlas2';
   import { runCirclePack } from './lib/layouts/circlePack';
+  import { fetchBridgeEdges } from './lib/bridgeBuilder';
   import BookUpload from './lib/BookUpload.svelte';
   import About from './lib/About.svelte';
   import WikiSearch from './lib/WikiSearch.svelte';
@@ -22,7 +23,7 @@
 
   // Search filter state
   let searchQuery = '';
-  let labelThreshold = 30;
+  let labelThreshold = 12;
   let sizeThreshold = 0;
 
   // API options
@@ -30,10 +31,26 @@
 
   // Initialize
   const DEFAULT_LANG = 'en';
+  const LABEL_THRESHOLD_STORAGE_KEY = 'wiki-graph:label-threshold';
+  const SIZE_THRESHOLD_STORAGE_KEY = 'wiki-graph:size-threshold';
+
+  function readStoredNumber(key: string, fallback: number): number {
+    const raw = globalThis.localStorage?.getItem(key);
+    if (raw === null || raw === undefined) return fallback;
+
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : fallback;
+  }
+
+  labelThreshold = readStoredNumber(LABEL_THRESHOLD_STORAGE_KEY, labelThreshold);
+  sizeThreshold = readStoredNumber(SIZE_THRESHOLD_STORAGE_KEY, sizeThreshold);
+
   apiClient.setLang(appState.lang || DEFAULT_LANG);
 
   function initRenderer() {
     if (!sigmaContainer || !appState.graph) return;
+
+    const cameraRatio = renderer?.getSigma()?.getCamera().getState().ratio;
 
     renderer?.kill();
     renderer = null;
@@ -47,6 +64,22 @@
     });
 
     renderer.render();
+
+    if (typeof cameraRatio === 'number') {
+      const camera = renderer.getSigma()?.getCamera();
+      camera?.setState({
+        ...camera.getState(),
+        ratio: cameraRatio,
+      });
+    }
+
+    renderer.setLabelThreshold(labelThreshold);
+    renderer.setSizeThreshold(sizeThreshold);
+
+    if (searchQuery) {
+      renderer.setSearchQuery(searchQuery);
+    }
+
     setupEventListeners();
   }
 
@@ -88,6 +121,7 @@
 
       if (!connectsToRenderedGraph) return;
 
+      const newNodeIds: string[] = [];
       let added = 0;
       newNodes.forEach((other) => {
         if (!other) return;
@@ -98,12 +132,16 @@
             ...other.data,
           });
           added += 1;
+          newNodeIds.push(other.id);
         }
 
         appState.graph!.addLink(nodeId, other.id);
       });
 
       if (added > 0) {
+        // Build bridge edges between new backlinks and existing nodes
+        await fetchBridgeEdges(newNodeIds, appState.graph, appState.lang);
+
         detectCommunities(appState.graph.getGraphology());
         runForceAtlas2(appState.graph.getGraphology());
         initRenderer();
@@ -127,18 +165,33 @@
     sigmaContainer.addEventListener('expand', handleExpand as EventListener);
   }
 
-  /** Handle search from WikiSearch — replace the current graph. */
+  /** Handle search from WikiSearch — add to existing graph. */
   async function onSearch(e: CustomEvent | { detail: string }) {
     const q = typeof e.detail === 'string' ? e.detail : e.detail;
     const summary = fetchSummaries ? await apiClient.getSummary(q) : null;
     const entryItem = summary ? apiClient.getItem(summary) : { id: q, data: {} };
-    if (entryItem) {
+    if (!entryItem) return;
+
+    // If no graph exists, create one via performSearch
+    if (!appState.graph) {
       const graph = await performSearch(entryItem, fetchSummaries);
       detectCommunities(graph.getGraphology());
       runForceAtlas2(graph.getGraphology());
       initRenderer();
       circlePackAvailable = hasCommunityData(graph.getGraphology());
+      return;
     }
+
+    // Add to existing graph
+    const newNodeIds = await addToGraph(entryItem, appState.graph, fetchSummaries);
+
+    // Build bridge edges between new nodes and existing graph
+    await fetchBridgeEdges(newNodeIds, appState.graph, appState.lang);
+
+    detectCommunities(appState.graph.getGraphology());
+    runForceAtlas2(appState.graph.getGraphology());
+    initRenderer();
+    circlePackAvailable = hasCommunityData(appState.graph.getGraphology());
   }
 
   /** Handle navigate (double-click) — always replaces the graph. */
@@ -200,11 +253,13 @@
 
   function onLabelThreshold(value: number) {
     labelThreshold = value;
+    globalThis.localStorage?.setItem(LABEL_THRESHOLD_STORAGE_KEY, String(value));
     if (renderer) renderer.setLabelThreshold(value);
   }
 
   function onSizeThreshold(value: number) {
     sizeThreshold = value;
+    globalThis.localStorage?.setItem(SIZE_THRESHOLD_STORAGE_KEY, String(value));
     if (renderer) renderer.setSizeThreshold(value);
   }
 
@@ -253,7 +308,8 @@
   <div class="graph-controls">
     <input
       type="search"
-      placeholder="search in titles..."
+      aria-label="Filter graph nodes"
+      placeholder="filter nodes..."
       value={searchQuery}
       on:input={handleFilterInput}
     />
@@ -334,7 +390,7 @@
 
   .graph-controls {
     position: absolute;
-    top: 1em;
+    top: 4em;
     left: 1em;
     z-index: 100;
     display: flex;

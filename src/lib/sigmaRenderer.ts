@@ -22,9 +22,9 @@ export class SigmaRenderer {
   constructor(adapter: GraphologyAdapter, options: SigmaRendererOptions) {
     this.adapter = adapter;
     this.container = options.container;
-    this.labelThreshold = options.labelThreshold || 30;
-    this.sizeThreshold = options.sizeThreshold || 0;
-    this.lang = options.lang || 'en';
+    this.labelThreshold = options.labelThreshold ?? 30;
+    this.sizeThreshold = options.sizeThreshold ?? 0;
+    this.lang = options.lang ?? 'en';
   }
 
   render(): void {
@@ -33,6 +33,7 @@ export class SigmaRenderer {
     }
 
     const graphologyGraph = this.adapter.getGraphology();
+    this.applyStyles(graphologyGraph);
 
     this.sigma = new Sigma(
       graphologyGraph,
@@ -44,7 +45,6 @@ export class SigmaRenderer {
     );
 
     this.setupEvents(graphologyGraph);
-    this.applyStyles(graphologyGraph);
   }
 
   updateGraph(): void {
@@ -66,7 +66,7 @@ export class SigmaRenderer {
   }
 
   setSearchQuery(query: string): void {
-    this.searchQuery = query.toLowerCase();
+    this.searchQuery = query.trim().toLowerCase();
     this.applyStyles(this.adapter.getGraphology());
     if (this.sigma) this.sigma.refresh();
   }
@@ -96,43 +96,55 @@ export class SigmaRenderer {
 
   private applyStyles(graph: Graph): void {
     const dimColor = '#e3e3e3';
+    const searchMatches = new Set<string>();
+    const searchNeighbors = new Set<string>();
+
+    if (this.searchQuery) {
+      graph.forEachNode((nodeId: string, attributes: Record<string, any>) => {
+        if (this.nodeMatchesSearch(nodeId, attributes)) {
+          searchMatches.add(nodeId);
+          graph.neighbors(nodeId).forEach((neighborId) => searchNeighbors.add(neighborId));
+        }
+      });
+    }
 
     graph.forEachNode((nodeId: string, attributes: Record<string, any>) => {
       const degree = graph.degree(nodeId);
       const isHovered = nodeId === this.hoveredNode;
-      const matchesSearch = this.searchQuery &&
-        nodeId.toLowerCase().includes(this.searchQuery);
+      const matchesSearch = searchMatches.has(nodeId);
+      const isSearchNeighbor = searchNeighbors.has(nodeId);
+      const isSearchRelevant = !this.searchQuery || matchesSearch || isSearchNeighbor;
       const isNeighbor = this.hoveredNode && graph.neighbors(this.hoveredNode).includes(nodeId);
+      const isHighlighted = (this.hoveredNode && (isHovered || isNeighbor)) ||
+        (this.searchQuery && (matchesSearch || isSearchNeighbor));
 
-      // Size based on degree
-      const size = Math.max(4, Math.sqrt(degree) * 8);
+      // Size based on degree, capped so hubs stay readable without dominating.
+      const size = Math.min(18, Math.max(2.5, 3 + Math.log1p(degree) * 3));
 
       // Check size threshold
-      if (degree < this.sizeThreshold) {
+      if (degree < this.sizeThreshold || !isSearchRelevant) {
         graph.setNodeAttribute(nodeId, 'hidden', true);
+        graph.setNodeAttribute(nodeId, 'forceLabel', false);
+        graph.setNodeAttribute(nodeId, 'highlighted', false);
         return;
       }
       graph.setNodeAttribute(nodeId, 'hidden', false);
 
-      // Label
-      graph.setNodeAttribute(nodeId, 'label', nodeId);
-
-      // Color
-      if (this.hoveredNode) {
-        if (isHovered || isNeighbor) {
-          graph.setNodeAttribute(nodeId, 'color', attributes.community_color || '#4a9eff');
-        } else {
-          graph.setNodeAttribute(nodeId, 'color', dimColor);
-          graph.setNodeAttribute(nodeId, 'label', '');
-        }
-      } else if (this.searchQuery) {
-        if (matchesSearch) {
-          graph.setNodeAttribute(nodeId, 'color', attributes.community_color || '#4a9eff');
-        } else {
-          graph.setNodeAttribute(nodeId, 'color', dimColor);
-          graph.setNodeAttribute(nodeId, 'label', '');
-        }
+      // Label and color
+      if (isHighlighted) {
+        graph.setNodeAttribute(nodeId, 'label', nodeId);
+        graph.setNodeAttribute(nodeId, 'forceLabel', true);
+        graph.setNodeAttribute(nodeId, 'highlighted', true);
+        graph.setNodeAttribute(nodeId, 'color', matchesSearch ? '#f59e0b' : attributes.community_color || '#4a9eff');
+      } else if (this.hoveredNode || this.searchQuery) {
+        graph.setNodeAttribute(nodeId, 'color', dimColor);
+        graph.setNodeAttribute(nodeId, 'label', '');
+        graph.setNodeAttribute(nodeId, 'forceLabel', false);
+        graph.setNodeAttribute(nodeId, 'highlighted', false);
       } else {
+        graph.setNodeAttribute(nodeId, 'label', nodeId);
+        graph.setNodeAttribute(nodeId, 'forceLabel', false);
+        graph.setNodeAttribute(nodeId, 'highlighted', false);
         graph.setNodeAttribute(nodeId, 'color', attributes.community_color || '#4a9eff');
       }
 
@@ -143,9 +155,18 @@ export class SigmaRenderer {
     // Style edges
     graph.forEachEdge((_edgeId: string, _attrs: Record<string, any>, source: string, target: string) => {
       const sourceAttrs = graph.getNodeAttributes(source) as Record<string, any>;
+      const sourceHidden = graph.getNodeAttribute(source, 'hidden');
+      const targetHidden = graph.getNodeAttribute(target, 'hidden');
 
       // Edge color matches source node's community
       const sourceColor = sourceAttrs.community_color || '#4a9eff';
+
+      if (sourceHidden || targetHidden) {
+        graph.setEdgeAttribute(_edgeId, 'hidden', true);
+        return;
+      }
+
+      graph.setEdgeAttribute(_edgeId, 'hidden', false);
 
       if (this.hoveredNode) {
         const isNeighborSource = source === this.hoveredNode;
@@ -155,16 +176,18 @@ export class SigmaRenderer {
 
         if (isNeighborSource || isNeighborTarget || isNeighbor) {
           graph.setEdgeAttribute(_edgeId, 'color', sourceColor);
-          graph.setEdgeAttribute(_edgeId, 'hidden', false);
         } else {
           graph.setEdgeAttribute(_edgeId, 'color', dimColor);
-          graph.setEdgeAttribute(_edgeId, 'hidden', false);
         }
       } else if (this.searchQuery) {
-        const sourceMatches = source.toLowerCase().includes(this.searchQuery);
-        const targetMatches = target.toLowerCase().includes(this.searchQuery);
+        const sourceMatches = searchMatches.has(source);
+        const targetMatches = searchMatches.has(target);
+        const connectsSearchContext =
+          (sourceMatches && searchNeighbors.has(target)) ||
+          (targetMatches && searchNeighbors.has(source)) ||
+          (sourceMatches && targetMatches);
 
-        if (sourceMatches || targetMatches) {
+        if (connectsSearchContext) {
           graph.setEdgeAttribute(_edgeId, 'color', sourceColor);
         } else {
           graph.setEdgeAttribute(_edgeId, 'color', dimColor);
@@ -173,8 +196,22 @@ export class SigmaRenderer {
         graph.setEdgeAttribute(_edgeId, 'color', sourceColor);
       }
 
-      graph.setEdgeAttribute(_edgeId, 'size', 0.5);
+      graph.setEdgeAttribute(_edgeId, 'size', 0.3);
     });
+  }
+
+  private nodeMatchesSearch(nodeId: string, attributes: Record<string, any>): boolean {
+    const searchableValues = [
+      nodeId,
+      attributes.wikipedia_title,
+      attributes.description,
+      attributes.entity_type,
+      ...(Array.isArray(attributes.mentions) ? attributes.mentions : []),
+    ];
+
+    return searchableValues.some((value) =>
+      typeof value === 'string' && value.toLowerCase().includes(this.searchQuery)
+    );
   }
 
   /** Extract string node ID from Sigma.js event, handling both v2 and v3 formats */
