@@ -12,7 +12,7 @@
     selectedLang = langFromUrl
   }
   else {
-    const userLang = (navigator.language || navigator.userLanguage).split('-')[0]
+    const userLang = (navigator.language || (navigator as any).userLanguage).split('-')[0]
     console.log('user lang: ' + userLang)
     selectedLang = userLang
   }

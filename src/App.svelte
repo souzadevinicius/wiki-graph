@@ -1,12 +1,13 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { appState, performSearch, watchState } from './lib/state';
-  import { apiClient, isMobile } from './lib/apiClient';
+  import { onDestroy } from 'svelte';
+  import { appState, performSearch, addToGraph, watchState } from './lib/state';
+  import { apiClient } from './lib/apiClient';
   import { queryStore } from './lib/store';
   import { SigmaRenderer } from './lib/sigmaRenderer';
   import { detectCommunities, hasCommunityData } from './lib/communityDetection';
   import { runForceAtlas2 } from './lib/layouts/forceAtlas2';
-import { runCirclePack } from './lib/layouts/circlePack';
+  import { runCirclePack } from './lib/layouts/circlePack';
+  import { fetchBridgeEdges } from './lib/bridgeBuilder';
   import BookUpload from './lib/BookUpload.svelte';
   import About from './lib/About.svelte';
   import WikiSearch from './lib/WikiSearch.svelte';
@@ -14,118 +15,197 @@ import { runCirclePack } from './lib/layouts/circlePack';
   let sigmaContainer: HTMLDivElement;
   let renderer: SigmaRenderer | null = null;
   let aboutVisible = false;
+  let eventListenersAttached = false;
 
   // Layout state
   let fa2Running = false;
   let circlePackAvailable = false;
-  let currentLayout = 'fa2';
 
   // Search filter state
   let searchQuery = '';
-  let labelThreshold = 30;
+  let labelThreshold = 12;
   let sizeThreshold = 0;
+
+  // API options
+  let fetchSummaries = false;
 
   // Initialize
   const DEFAULT_LANG = 'en';
+  const LABEL_THRESHOLD_STORAGE_KEY = 'wiki-graph:label-threshold';
+  const SIZE_THRESHOLD_STORAGE_KEY = 'wiki-graph:size-threshold';
+
+  function readStoredNumber(key: string, fallback: number): number {
+    const raw = globalThis.localStorage?.getItem(key);
+    if (raw === null || raw === undefined) return fallback;
+
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : fallback;
+  }
+
+  labelThreshold = readStoredNumber(LABEL_THRESHOLD_STORAGE_KEY, labelThreshold);
+  sizeThreshold = readStoredNumber(SIZE_THRESHOLD_STORAGE_KEY, sizeThreshold);
+
   apiClient.setLang(appState.lang || DEFAULT_LANG);
 
   function initRenderer() {
     if (!sigmaContainer || !appState.graph) return;
 
+    const cameraRatio = renderer?.getSigma()?.getCamera().getState().ratio;
+
+    renderer?.kill();
+    renderer = null;
+    sigmaContainer.replaceChildren();
+
     renderer = new SigmaRenderer(appState.graph, {
       container: sigmaContainer,
       labelThreshold,
       sizeThreshold,
+      lang: appState.lang,
     });
 
     renderer.render();
+
+    if (typeof cameraRatio === 'number') {
+      const camera = renderer.getSigma()?.getCamera();
+      camera?.setState({
+        ...camera.getState(),
+        ratio: cameraRatio,
+      });
+    }
+
+    renderer.setLabelThreshold(labelThreshold);
+    renderer.setSizeThreshold(sizeThreshold);
+
+    if (searchQuery) {
+      renderer.setSearchQuery(searchQuery);
+    }
+
     setupEventListeners();
   }
 
-  function setupEventListeners() {
-    if (!sigmaContainer) return;
-
-    // Navigate (double-click)
-    sigmaContainer.addEventListener('navigate', (e: CustomEvent) => {
-      const nodeId = e.detail;
-      appState.query = nodeId;
-      queryStore.set(appState.query);
-      onSearch({ detail: nodeId });
-    });
-
-    // Expand (right-click)
-    sigmaContainer.addEventListener('expand', async (e: CustomEvent) => {
-      const nodeId = e.detail;
-      if (!appState.graph) return;
-
-      const node = appState.graph.getNode(nodeId);
-      const wikiTitle = node.data.wikipedia_title || nodeId;
-      if (!wikiTitle) return;
-
-      try {
-        const backlinks = await apiClient.getResponse(wikiTitle);
-        if (backlinks.length === 0) return;
-
-        const summaries = await Promise.all(
-          backlinks.map(async (bl) => {
-            const summary = await apiClient.getSummary(bl.title);
-            return apiClient.getItem(summary);
-          })
-        );
-
-        const newNodes = summaries.filter(Boolean);
-        const anchorDepth = node.data.depth ?? 0;
-        const newDepth = anchorDepth + 1;
-
-        if (newDepth > (appState.graph.maxDepth || 0)) {
-          appState.graph.maxDepth = newDepth;
-        }
-
-        let added = 0;
-        newNodes.forEach((other) => {
-          if (other && !appState.graph.hasNode(other.id)) {
-            appState.graph.addNode(other.id, {
-              depth: newDepth,
-              ...other.data,
-            });
-            appState.graph.addLink(nodeId, other.id);
-            added += 1;
-          }
-        });
-
-        if (added > 0) {
-          // Re-run community detection
-          detectCommunities(appState.graph.getGraphology());
-          // Re-run layout
-          runForceAtlas2(appState.graph.getGraphology());
-          // Update renderer
-          if (renderer) renderer.updateGraph();
-          circlePackAvailable = hasCommunityData(appState.graph.getGraphology());
-        }
-      } catch (err) {
-        console.error('[expandNode] failed:', err);
-      }
-    });
+  function handleNavigate(e: CustomEvent) {
+    onNavigate(e);
   }
 
+  async function handleExpand(e: CustomEvent) {
+    const nodeId = e.detail;
+    if (!appState.graph) return;
+
+    appState.query = nodeId;
+    queryStore.set(nodeId);
+
+    const node = appState.graph.getNode(nodeId);
+    const wikiTitle = node.data.wikipedia_title || nodeId;
+    if (!wikiTitle) return;
+
+    try {
+      const backlinks = await apiClient.getResponse(wikiTitle);
+      if (backlinks.length === 0) return;
+
+      const summaries = await Promise.all(
+        backlinks.map(async (bl) => {
+          if (fetchSummaries) {
+            const summary = await apiClient.getSummary(bl.title);
+            return apiClient.getItem(summary);
+          }
+          return { id: bl.title, data: { description: '', extract_html: bl.extract || '', thumbnail: bl.thumbnail?.source || null } };
+        })
+      );
+
+      const newNodes = summaries.filter(Boolean);
+      const anchorDepth = node.data.depth ?? 0;
+      const newDepth = anchorDepth + 1;
+      const connectsToRenderedGraph = appState.graph.hasNode(nodeId) || newNodes.some((other) =>
+        other ? appState.graph!.hasNode(other.id) : false
+      );
+
+      if (!connectsToRenderedGraph) return;
+
+      const newNodeIds: string[] = [];
+      let added = 0;
+      newNodes.forEach((other) => {
+        if (!other) return;
+
+        if (!appState.graph!.hasNode(other.id)) {
+          appState.graph!.addNode(other.id, {
+            depth: newDepth,
+            ...other.data,
+          });
+          added += 1;
+          newNodeIds.push(other.id);
+        }
+
+        appState.graph!.addLink(nodeId, other.id);
+      });
+
+      if (added > 0) {
+        // Build bridge edges between new backlinks and existing nodes
+        await fetchBridgeEdges(newNodeIds, appState.graph, appState.lang);
+
+        detectCommunities(appState.graph.getGraphology());
+        runForceAtlas2(appState.graph.getGraphology());
+        initRenderer();
+        circlePackAvailable = hasCommunityData(appState.graph.getGraphology());
+      } else if (renderer) {
+        renderer.updateGraph();
+      }
+    } catch (err) {
+      console.error('[expandNode] failed:', err);
+    }
+  }
+
+  function setupEventListeners() {
+    if (!sigmaContainer || eventListenersAttached) return;
+    eventListenersAttached = true;
+
+    // Navigate (double-click) — replace graph
+    sigmaContainer.addEventListener('navigate', handleNavigate as EventListener);
+
+    // Expand (middle-click)
+    sigmaContainer.addEventListener('expand', handleExpand as EventListener);
+  }
+
+  /** Handle search from WikiSearch — add to existing graph. */
   async function onSearch(e: CustomEvent | { detail: string }) {
     const q = typeof e.detail === 'string' ? e.detail : e.detail;
-    const summary = await apiClient.getSummary(q);
-    const entryItem = apiClient.getItem(summary);
+    const summary = fetchSummaries ? await apiClient.getSummary(q) : null;
+    const entryItem = summary ? apiClient.getItem(summary) : { id: q, data: {} };
+    if (!entryItem) return;
 
-    if (entryItem) {
-      const graph = await performSearch(entryItem);
-
-      // Run community detection
+    // If no graph exists, create one via performSearch
+    if (!appState.graph) {
+      const graph = await performSearch(entryItem, fetchSummaries);
       detectCommunities(graph.getGraphology());
-
-      // Run layout
       runForceAtlas2(graph.getGraphology());
-
-      // Init renderer
       initRenderer();
+      circlePackAvailable = hasCommunityData(graph.getGraphology());
+      return;
+    }
 
-      // Check if CirclePack is available
+    // Add to existing graph
+    const newNodeIds = await addToGraph(entryItem, appState.graph, fetchSummaries);
+
+    // Build bridge edges between new nodes and existing graph
+    await fetchBridgeEdges(newNodeIds, appState.graph, appState.lang);
+
+    detectCommunities(appState.graph.getGraphology());
+    runForceAtlas2(appState.graph.getGraphology());
+    initRenderer();
+    circlePackAvailable = hasCommunityData(appState.graph.getGraphology());
+  }
+
+  /** Handle navigate (double-click) — always replaces the graph. */
+  async function onNavigate(e: CustomEvent) {
+    const nodeId = e.detail;
+    appState.query = nodeId;
+    queryStore.set(appState.query);
+    const summary = fetchSummaries ? await apiClient.getSummary(nodeId) : null;
+    const entryItem = summary ? apiClient.getItem(summary) : { id: nodeId, data: {} };
+    if (entryItem) {
+      const graph = await performSearch(entryItem, fetchSummaries);
+      detectCommunities(graph.getGraphology());
+      runForceAtlas2(graph.getGraphology());
+      initRenderer();
       circlePackAvailable = hasCommunityData(graph.getGraphology());
     }
   }
@@ -157,7 +237,6 @@ import { runCirclePack } from './lib/layouts/circlePack';
     if (!appState.graph || !circlePackAvailable) return;
     runCirclePack(appState.graph.getGraphology());
     if (renderer) renderer.updateGraph();
-    currentLayout = 'circlepack';
   }
 
   // Search filter
@@ -174,24 +253,44 @@ import { runCirclePack } from './lib/layouts/circlePack';
 
   function onLabelThreshold(value: number) {
     labelThreshold = value;
+    globalThis.localStorage?.setItem(LABEL_THRESHOLD_STORAGE_KEY, String(value));
     if (renderer) renderer.setLabelThreshold(value);
   }
 
   function onSizeThreshold(value: number) {
     sizeThreshold = value;
+    globalThis.localStorage?.setItem(SIZE_THRESHOLD_STORAGE_KEY, String(value));
     if (renderer) renderer.setSizeThreshold(value);
+  }
+
+  // Event handlers for template
+  function handleFilterInput(e: Event) {
+    onFilterInput((e.target as HTMLInputElement).value);
+  }
+
+  function handleLabelThreshold(e: Event) {
+    onLabelThreshold(Number((e.target as HTMLInputElement).value));
+  }
+
+  function handleSizeThreshold(e: Event) {
+    onSizeThreshold(Number((e.target as HTMLInputElement).value));
   }
 
   // Handle initial query from URL
   if (appState.query) {
     (async () => {
-      const summary = await apiClient.getSummary(appState.query);
-      const entryItem = apiClient.getItem(summary);
-      if (entryItem) {
-        await onSearch({ detail: appState.query });
-      }
+      await onSearch({ detail: appState.query });
     })();
   }
+
+  onDestroy(() => {
+    renderer?.kill();
+
+    if (sigmaContainer && eventListenersAttached) {
+      sigmaContainer.removeEventListener('navigate', handleNavigate as EventListener);
+      sigmaContainer.removeEventListener('expand', handleExpand as EventListener);
+    }
+  });
 
   type AppState = typeof appState;
   watchState((target: AppState, prop: keyof AppState, val: any) => {
@@ -209,9 +308,10 @@ import { runCirclePack } from './lib/layouts/circlePack';
   <div class="graph-controls">
     <input
       type="search"
-      placeholder="search in titles..."
+      aria-label="Filter graph nodes"
+      placeholder="filter nodes..."
       value={searchQuery}
-      on:input={(e) => onFilterInput(e.target.value)}
+      on:input={handleFilterInput}
     />
 
     <div class="sliders">
@@ -220,7 +320,7 @@ import { runCirclePack } from './lib/layouts/circlePack';
         min="0"
         max="100"
         value={labelThreshold}
-        on:input={(e) => onLabelThreshold(Number(e.target.value))}
+        on:input={handleLabelThreshold}
         title="Label threshold"
       />
       <input
@@ -228,7 +328,7 @@ import { runCirclePack } from './lib/layouts/circlePack';
         min="0"
         max="10"
         value={sizeThreshold}
-        on:input={(e) => onSizeThreshold(Number(e.target.value))}
+        on:input={handleSizeThreshold}
         title="Size threshold"
       />
     </div>
@@ -241,6 +341,11 @@ import { runCirclePack } from './lib/layouts/circlePack';
         CirclePack
       </button>
     </div>
+
+    <label class="summary-toggle">
+      <input type="checkbox" bind:checked={fetchSummaries} />
+      Fetch Wikipedia summaries
+    </label>
   </div>
 
   <!-- Sigma.js container -->
@@ -251,7 +356,7 @@ import { runCirclePack } from './lib/layouts/circlePack';
 
   <!-- Links -->
   <div class="about-links">
-    <a href="#" on:click={() => (aboutVisible = true)}>about</a>
+    <button class="about-link" on:click={() => (aboutVisible = true)}>about</button>
     <a
       href="https://github.com/souzadevinicius/wiki-graph"
       target="_blank"
@@ -285,7 +390,7 @@ import { runCirclePack } from './lib/layouts/circlePack';
 
   .graph-controls {
     position: absolute;
-    top: 1em;
+    top: 4em;
     left: 1em;
     z-index: 100;
     display: flex;
@@ -351,6 +456,20 @@ import { runCirclePack } from './lib/layouts/circlePack';
     cursor: not-allowed;
   }
 
+  .summary-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    font-size: 0.8rem;
+    color: #666;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .summary-toggle input[type="checkbox"] {
+    cursor: pointer;
+  }
+
   .sigma-container {
     position: absolute;
     top: 0;
@@ -370,12 +489,19 @@ import { runCirclePack } from './lib/layouts/circlePack';
     gap: 1em;
   }
 
-  .about-links a {
+  .about-links a,
+  .about-links .about-link {
     color: inherit;
     text-decoration: none;
+    background: none;
+    border: none;
+    font: inherit;
+    cursor: pointer;
+    padding: 0;
   }
 
-  .about-links a:hover {
+  .about-links a:hover,
+  .about-links .about-link:hover {
     color: #4a9eff;
   }
 </style>

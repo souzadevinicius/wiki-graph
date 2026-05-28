@@ -7,7 +7,6 @@ export interface AppState {
   lang: string;
   hasGraph: boolean;
   graph: GraphologyAdapter | null;
-  maxDepth: number;
   progress: ProgressState;
 }
 
@@ -40,7 +39,7 @@ export class ProgressState {
   }
 }
 
-let lastBuilder: any = null;
+
 let watchers: Set<(target: AppState, prop: keyof AppState, val: any) => void> = new Set();
 
 export function watchState(f: (target: AppState, prop: keyof AppState, val: any) => void) {
@@ -73,7 +72,6 @@ export const appState: AppState = new Proxy({
   lang: appStateFromQuery.lang || 'en',
   hasGraph: false,
   graph: null,
-  maxDepth: 2,
   progress: new ProgressState(),
 } as AppState, {
   set(target, prop, val, receiver) {
@@ -81,7 +79,7 @@ export const appState: AppState = new Proxy({
     if (['query', 'lang'].includes(prop as string)) {
       qs.set(prop, val);
     }
-    notifyWatchers(target, prop, val);
+    notifyWatchers(target, prop as keyof AppState, val);
     return result;
   },
 });
@@ -94,7 +92,52 @@ qs.onChange((newState) => {
 
 export { qs };
 
-export async function performSearch(entryItem: { id: string; data: any }) {
+/**
+ * Add a Wikipedia article and its backlinks to an existing graph.
+ * If no graph exists, creates a new one (delegates to performSearch).
+ */
+export async function addToGraph(
+  entryItem: { id: string; data: any },
+  existingGraph: GraphologyAdapter,
+  fetchSummaries: boolean = false,
+) {
+  // Add root node if it doesn't exist
+  if (!existingGraph.hasNode(entryItem.id)) {
+    existingGraph.addNode(entryItem.id, { depth: 0, ...entryItem.data });
+  }
+
+  const newNodeIds: string[] = [];
+
+  try {
+    const backlinks = await apiClient.getResponse(entryItem.id);
+
+    const summaries = await Promise.all(
+      backlinks.map(async (bl) => {
+        if (fetchSummaries) {
+          const summary = await apiClient.getSummary(bl.title);
+          return apiClient.getItem(summary);
+        }
+        return { id: bl.title, data: { description: '', extract_html: bl.extract || '', thumbnail: bl.thumbnail?.source || null } };
+      })
+    );
+
+    const newNodes = summaries.filter(Boolean);
+    newNodes.forEach((node) => {
+      if (!node) return;
+      if (!existingGraph.hasNode(node.id)) {
+        existingGraph.addNode(node.id, { depth: 1, ...node.data });
+        newNodeIds.push(node.id);
+      }
+      existingGraph.addLink(entryItem.id, node.id);
+    });
+  } catch (err) {
+    console.error('[addToGraph] Failed to fetch:', entryItem.id, err);
+  }
+
+  return newNodeIds;
+}
+
+export async function performSearch(entryItem: { id: string; data: any }, fetchSummaries: boolean = false) {
   console.log('[performSearch] entryItem:', entryItem);
 
   appState.hasGraph = true;
@@ -102,13 +145,8 @@ export async function performSearch(entryItem: { id: string; data: any }) {
 
   qs.set('query', entryItem.id);
 
-  if (lastBuilder) {
-    lastBuilder.dispose();
-  }
-
   // Build graph using graphology adapter
   const graph = new GraphologyAdapter();
-  graph.maxDepth = appState.maxDepth;
 
   appState.graph = graph;
   appState.progress.startDownload();
@@ -116,60 +154,37 @@ export async function performSearch(entryItem: { id: string; data: any }) {
   // Add root node
   graph.addNode(entryItem.id, { depth: 0, ...entryItem.data });
 
-  // Fetch backlinks
-  let queue = [entryItem.id];
-  let cancelled = false;
+// Fetch backlinks (depth 1 only — immediate backlinks per glossary)
+  try {
+    const backlinks = await apiClient.getResponse(entryItem.id);
 
-  async function processQueue() {
-    while (queue.length > 0 && !cancelled) {
-      const nextId = queue.shift()!;
-      appState.progress.updateLayout(queue.length, nextId);
+    // Fetch summaries for rich data (optional — skipped when disabled)
+    const summaries = await Promise.all(
+      backlinks.map(async (bl) => {
+        if (fetchSummaries) {
+          const summary = await apiClient.getSummary(bl.title);
+          return apiClient.getItem(summary);
+        }
+        return { id: bl.title, data: { description: '', extract_html: bl.extract || '', thumbnail: bl.thumbnail?.source || null } };
+      })
+    );
 
-      try {
-        const backlinks = await apiClient.getResponse(nextId);
-
-        // Fetch summaries for rich data
-        const summaries = await Promise.all(
-          backlinks.map(async (bl) => {
-            const summary = await apiClient.getSummary(bl.title);
-            return apiClient.getItem(summary);
-          })
-        );
-
-        const newNodes = summaries.filter(Boolean);
-        const parentNode = graph.getNode(nextId);
-        const parentDepth = parentNode.data.depth || 0;
-
-        newNodes.forEach((node) => {
-          if (node && !graph.hasNode(node.id)) {
-            const depth = parentDepth + 1;
-            graph.addNode(node.id, { depth, ...node.data });
-            graph.addLink(nextId, node.id);
-            if (depth < appState.maxDepth) {
-              queue.push(node.id);
-            }
-          } else if (node) {
-            // Node exists, just add link if missing
-            graph.addLink(nextId, node.id);
-          }
-        });
-      } catch (err) {
-        console.error('[performSearch] Failed to fetch:', nextId, err);
-        appState.progress.downloadError(`Failed: ${nextId}`);
+    const newNodes = summaries.filter(Boolean);
+    newNodes.forEach((node) => {
+      if (node && !graph.hasNode(node.id)) {
+        graph.addNode(node.id, { depth: 1, ...node.data });
+        graph.addLink(entryItem.id, node.id);
+      } else if (node) {
+        graph.addLink(entryItem.id, node.id);
       }
-    }
-
-    appState.progress.working = false;
-    appState.progress.message = '';
+    });
+  } catch (err) {
+    console.error('[performSearch] Failed to fetch:', entryItem.id, err);
+    appState.progress.downloadError(`Failed: ${entryItem.id}`);
   }
 
-  processQueue();
-
-  function dispose() {
-    cancelled = true;
-  }
-
-  lastBuilder = { dispose };
+  appState.progress.working = false;
+  appState.progress.message = '';
 
   return graph;
 }

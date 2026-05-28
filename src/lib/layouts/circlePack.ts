@@ -75,9 +75,9 @@ export function runCirclePack(
     .sum((d: any) => d.value)
     .sort((a: any, b: any) => b.value - a.value);
 
-  const pack: any = d3Hierarchy
+  const pack: any = (d3Hierarchy as any)
     .pack()
-    .radius(radius)
+    .size([radius * 2, radius * 2])
     .padding(padding);
 
   const packed: any = pack(root);

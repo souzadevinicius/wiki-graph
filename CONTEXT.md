@@ -11,11 +11,11 @@ Typing in the search bar to highlight matching nodes within the current graph wi
 _Avoid_: search, find, query
 
 **search from Wikipedia**:
-Fetching a Wikipedia article and its backlinks, adding them to the existing graph without replacing it. Additive, not navigational.
+Fetching a Wikipedia article and its backlinks, adding them to the existing graph without replacing it. After adding, outgoing links from the new backlinks are fetched (capped at 10) to create **bridge edges** with nodes already in the graph, enabling meaningful **community** detection across expansions. Additive, not navigational.
 _Avoid_: expand, add nodes
 
 **expand**:
-Right-clicking a node to add its Wikipedia backlinks to the existing graph without replacing it. The clicked node is called the expansion anchor.
+Middle-clicking a node to add its Wikipedia backlinks to the existing graph without replacing it. The clicked node is called the expansion anchor.
 _Avoid_: drill down, zoom in, follow
 
 **navigate**:
@@ -31,6 +31,10 @@ _Avoid_: parent, upstream, reference
 **backlink depth**:
 The radius of expansion from an expansion anchor. Current value: 1 (immediate backlinks only).
 
+**bridge edge**:
+An edge added between a newly fetched backlink and an existing node in the graph, discovered by fetching the backlink's outgoing Wikipedia links. Created during **search from Wikipedia** and **expand** to connect separate expansion batches, enabling meaningful **community** detection.
+_Avoid_: cross-edge, inter-link
+
 **community**:
 A group of topologically related nodes discovered via a community detection algorithm (Louvain). Used for node coloring and hierarchical layouts (CirclePack). Book entity graphs compute communities on the backend; Wikipedia graphs compute them on the frontend.
 _Avoid_: cluster, group, partition
@@ -41,7 +45,7 @@ _Avoid_: cluster, group, partition
 Force-directed layout algorithm that arranges nodes based on graph topology. Tunable parameters are hidden from the user; it runs on/off via a toggle button.
 
 **CirclePack**:
-Hierarchical layout that packs **community** groups into nested circles. Available only for book entity graphs (where communities are computed).
+Hierarchical layout that packs **community** groups into nested circles. Available for any graph with **community** data (both book entity and Wikipedia graphs).
 
 ### Visual
 
@@ -56,17 +60,17 @@ _Avoid_: cluster color, group color
 User-adjustable slider that hides nodes below a certain degree, decluttering dense graphs.
 
 **label threshold**:
-User-adjustable slider that controls the minimum rendered size at which node labels are shown.
+User-adjustable slider that controls the minimum zoom level at which node labels appear. Labels use a fixed font size (10px) independent of node degree — zooming in reveals labels for all nodes, not just hubs.
 
 ## Relationships
 
 - A **filter** highlights matching nodes within the current graph; it does not replace it.
-- A **search from Wikipedia** adds new nodes to the existing graph; it does not replace it.
-- An **expand** adds **backlinks** to the existing graph; it does not replace it.
+- A **search from Wikipedia** adds new nodes to the existing graph; it does not replace it. After adding, **bridge edges** are created by fetching outgoing links from up to 10 of the most connected new nodes.
+- An **expand** adds **backlinks** to the existing graph; it does not replace it. **Bridge edges** are also created after expansion.
 - A **navigate** replaces the entire graph with a new one.
 - A backlink has a **backlink depth** of 1 from its expansion anchor.
 - Book entity nodes use their `wikipedia_title` as the expansion anchor for fetching backlinks.
-- **Community** coloring replaces the former **expansion color** concept — nodes are colored by topology, not by which expansion added them.
+- **Community** coloring replaces the former **expansion color** concept — nodes are colored by topology, not by which expansion added them. Bridge edges connect separate expansion batches, allowing Louvain to discover topically meaningful communities.
 
 ## Example dialogue
 
@@ -77,7 +81,13 @@ User-adjustable slider that controls the minimum rendered size at which node lab
 > **Domain expert:** "No — **navigate** replaces the entire graph. **Search from Wikipedia** adds to it."
 
 > **Dev:** "Should the CirclePack layout be available for Wikipedia graphs?"
-> **Domain expert:** "Only for book entity graphs — those have **community** data from the backend. Wikipedia graphs don't have communities, so CirclePack stays disabled."
+> **Domain expert:** "Yes — both book entity graphs and Wikipedia graphs have **community** data now. CirclePack is available wherever communities exist."
+
+> **Dev:** "After adding backlinks from an expansion, do we just run Louvain immediately?"
+> **Domain expert:** "No — we first build **bridge edges** by fetching outgoing links from the new backlinks. This connects separate expansion batches so Louvain sees the real topic structure, not isolated stars."
+
+> **Dev:** "How many outgoing links do we fetch for bridge-building?"
+> **Domain expert:** "Capped at 10 — prioritizing new nodes with higher degree. We want meaningful bridges without hammering the Wikipedia API."
 
 ## Flagged ambiguities
 
