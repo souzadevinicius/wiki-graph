@@ -7,6 +7,7 @@ export interface SigmaRendererOptions {
   labelThreshold: number;
   sizeThreshold: number;
   lang?: string;
+  pruningIntensity?: number;
 }
 
 export class SigmaRenderer {
@@ -18,6 +19,7 @@ export class SigmaRenderer {
   private lang: string;
   private hoveredNode: string | null = null;
   private searchQuery: string = '';
+  private pruningIntensity: number = 0;
 
   constructor(adapter: GraphologyAdapter, options: SigmaRendererOptions) {
     this.adapter = adapter;
@@ -25,6 +27,7 @@ export class SigmaRenderer {
     this.labelThreshold = options.labelThreshold ?? 30;
     this.sizeThreshold = options.sizeThreshold ?? 0;
     this.lang = options.lang ?? 'en';
+    this.pruningIntensity = options.pruningIntensity ?? 0;
   }
 
   render(): void {
@@ -41,6 +44,7 @@ export class SigmaRenderer {
       {
         labelRenderedSizeThreshold: this.labelThreshold,
         renderEdgeLabels: false,
+        labelColor: { attribute: 'labelColor', color: '#000' },
       }
     );
 
@@ -83,6 +87,12 @@ export class SigmaRenderer {
     if (this.sigma) this.sigma.refresh();
   }
 
+  setPruningIntensity(value: number): void {
+    this.pruningIntensity = value;
+    this.applyStyles(this.adapter.getGraphology());
+    if (this.sigma) this.sigma.refresh();
+  }
+
   kill(): void {
     if (this.sigma) {
       this.sigma.kill();
@@ -108,8 +118,66 @@ export class SigmaRenderer {
       });
     }
 
+    // PMI-aware edge filtering
+    let hiddenEdgeIds = new Set<string>();
+    if (this.pruningIntensity > 0) {
+      // Collect all edges with PMI
+      const edges: Array<{ id: string; pmi: number; source: string; target: string }> = [];
+      graph.forEachEdge((edgeId, attrs, source, target) => {
+        edges.push({
+          id: edgeId,
+          pmi: (attrs.pmi as number) ?? 0,
+          source,
+          target,
+        });
+      });
+
+      // Sort by PMI ascending (weakest first)
+      edges.sort((a, b) => a.pmi - b.pmi);
+
+      // PMI-aware: first remove negative PMI edges (0-20% range),
+      // then remove positive PMI edges from weakest to strongest (20-100%)
+      const negativeEdges = edges.filter(e => e.pmi < 0);
+      const positiveEdges = edges.filter(e => e.pmi >= 0);
+      const totalEdges = edges.length;
+
+      // At 20% intensity, all negative edges are gone
+      const negativeFraction = totalEdges > 0 ? negativeEdges.length / totalEdges : 0;
+      const intensity = this.pruningIntensity / 100;
+
+      if (intensity <= 0.2) {
+        // Proportionally remove negative edges
+        const removeFraction = intensity / 0.2;
+        const toRemove = Math.floor(removeFraction * negativeEdges.length);
+        for (let i = 0; i < toRemove; i++) {
+          hiddenEdgeIds.add(negativeEdges[i].id);
+        }
+      } else {
+        // All negative edges gone, now remove positive edges
+        hiddenEdgeIds = new Set(negativeEdges.map(e => e.id));
+        const remainingFraction = (intensity - 0.2) / 0.8;
+        const toRemove = Math.floor(remainingFraction * positiveEdges.length);
+        for (let i = 0; i < toRemove; i++) {
+          hiddenEdgeIds.add(positiveEdges[i].id);
+        }
+      }
+    }
+
+    // Compute visible degree per node (degree excluding hidden edges)
+    const visibleDegree: Map<string, number> = new Map();
+    graph.forEachNode((nodeId: string) => {
+      let count = 0;
+      graph.forEachEdge((_edgeId, _attrs, source, target) => {
+        if (hiddenEdgeIds.has(_edgeId)) return;
+        if (source === nodeId || target === nodeId) count++;
+      });
+      visibleDegree.set(nodeId, count);
+    });
+
     graph.forEachNode((nodeId: string, attributes: Record<string, any>) => {
       const degree = graph.degree(nodeId);
+      const vDegree = visibleDegree.get(nodeId) ?? 0;
+      const isOrphan = this.pruningIntensity > 0 && vDegree === 0;
       const isHovered = nodeId === this.hoveredNode;
       const matchesSearch = searchMatches.has(nodeId);
       const isSearchNeighbor = searchNeighbors.has(nodeId);
@@ -131,25 +199,35 @@ export class SigmaRenderer {
       graph.setNodeAttribute(nodeId, 'hidden', false);
 
       // Label and color
-      if (isHighlighted) {
+      if (isOrphan) {
+        // Dim orphan nodes (low opacity, greyed out)
+        graph.setNodeAttribute(nodeId, 'label', nodeId);
+        graph.setNodeAttribute(nodeId, 'forceLabel', false);
+        graph.setNodeAttribute(nodeId, 'highlighted', false);
+        graph.setNodeAttribute(nodeId, 'color', dimColor);
+        graph.setNodeAttribute(nodeId, 'labelColor', dimColor);
+        graph.setNodeAttribute(nodeId, 'size', size * 0.6);
+      } else if (isHighlighted) {
         graph.setNodeAttribute(nodeId, 'label', nodeId);
         graph.setNodeAttribute(nodeId, 'forceLabel', true);
         graph.setNodeAttribute(nodeId, 'highlighted', true);
         graph.setNodeAttribute(nodeId, 'color', matchesSearch ? '#f59e0b' : attributes.community_color || '#4a9eff');
+        graph.setNodeAttribute(nodeId, 'labelColor', '#333');
+        graph.setNodeAttribute(nodeId, 'size', size);
       } else if (this.hoveredNode || this.searchQuery) {
         graph.setNodeAttribute(nodeId, 'color', dimColor);
         graph.setNodeAttribute(nodeId, 'label', '');
         graph.setNodeAttribute(nodeId, 'forceLabel', false);
         graph.setNodeAttribute(nodeId, 'highlighted', false);
+        graph.setNodeAttribute(nodeId, 'size', size);
       } else {
         graph.setNodeAttribute(nodeId, 'label', nodeId);
         graph.setNodeAttribute(nodeId, 'forceLabel', false);
         graph.setNodeAttribute(nodeId, 'highlighted', false);
         graph.setNodeAttribute(nodeId, 'color', attributes.community_color || '#4a9eff');
+        graph.setNodeAttribute(nodeId, 'labelColor', '#333');
+        graph.setNodeAttribute(nodeId, 'size', size);
       }
-
-      // Apply size
-      graph.setNodeAttribute(nodeId, 'size', size);
     });
 
     // Style edges
@@ -161,7 +239,7 @@ export class SigmaRenderer {
       // Edge color matches source node's community
       const sourceColor = sourceAttrs.community_color || '#4a9eff';
 
-      if (sourceHidden || targetHidden) {
+      if (sourceHidden || targetHidden || hiddenEdgeIds.has(_edgeId)) {
         graph.setEdgeAttribute(_edgeId, 'hidden', true);
         return;
       }

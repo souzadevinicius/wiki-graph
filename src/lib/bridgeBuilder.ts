@@ -52,7 +52,7 @@ export async function fetchBridgeEdges(
   for (const { title, bridges: bridgeTargets } of results) {
     for (const target of bridgeTargets) {
       if (!graph.hasLink(title, target)) {
-        graph.addLink(title, target);
+        graph.addLink(title, target, 5.0);
         bridges++;
       }
     }

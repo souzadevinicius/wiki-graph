@@ -1,13 +1,16 @@
 import queryState from 'query-state';
 import { GraphologyAdapter } from './graphologyAdapter';
 import { apiClient } from './apiClient';
+import type { Chapter } from './serverApi';
 
 export interface AppState {
   query: string;
   lang: string;
   hasGraph: boolean;
   graph: GraphologyAdapter | null;
+  graphVersion: number;
   progress: ProgressState;
+  chapters: Chapter[] | null;
 }
 
 export class ProgressState {
@@ -72,6 +75,8 @@ export const appState: AppState = new Proxy({
   lang: appStateFromQuery.lang || 'en',
   hasGraph: false,
   graph: null,
+  graphVersion: 0,
+  chapters: null,
   progress: new ProgressState(),
 } as AppState, {
   set(target, prop, val, receiver) {
@@ -128,7 +133,7 @@ export async function addToGraph(
         existingGraph.addNode(node.id, { depth: 1, ...node.data });
         newNodeIds.push(node.id);
       }
-      existingGraph.addLink(entryItem.id, node.id);
+      existingGraph.addLink(entryItem.id, node.id, 5.0);
     });
   } catch (err) {
     console.error('[addToGraph] Failed to fetch:', entryItem.id, err);
@@ -142,6 +147,8 @@ export async function performSearch(entryItem: { id: string; data: any }, fetchS
 
   appState.hasGraph = true;
   appState.progress.reset();
+  // Clear book chapters for Wikipedia graphs
+  appState.chapters = null;
 
   qs.set('query', entryItem.id);
 
@@ -173,9 +180,9 @@ export async function performSearch(entryItem: { id: string; data: any }, fetchS
     newNodes.forEach((node) => {
       if (node && !graph.hasNode(node.id)) {
         graph.addNode(node.id, { depth: 1, ...node.data });
-        graph.addLink(entryItem.id, node.id);
+        graph.addLink(entryItem.id, node.id, 5.0);
       } else if (node) {
-        graph.addLink(entryItem.id, node.id);
+        graph.addLink(entryItem.id, node.id, 5.0);
       }
     });
   } catch (err) {

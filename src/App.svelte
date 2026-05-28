@@ -11,20 +11,27 @@
   import BookUpload from './lib/BookUpload.svelte';
   import About from './lib/About.svelte';
   import WikiSearch from './lib/WikiSearch.svelte';
+  import GraphStats from './lib/GraphStats.svelte';
 
   let sigmaContainer: HTMLDivElement;
   let renderer: SigmaRenderer | null = null;
   let aboutVisible = false;
+  let statsVisible = false;
   let eventListenersAttached = false;
 
   // Layout state
   let fa2Running = false;
   let circlePackAvailable = false;
 
+  function bumpGraphVersion() {
+    appState.graphVersion += 1;
+  }
+
   // Search filter state
   let searchQuery = '';
   let labelThreshold = 12;
   let sizeThreshold = 0;
+  let pruningIntensity = 0;
 
   // API options
   let fetchSummaries = false;
@@ -33,6 +40,7 @@
   const DEFAULT_LANG = 'en';
   const LABEL_THRESHOLD_STORAGE_KEY = 'wiki-graph:label-threshold';
   const SIZE_THRESHOLD_STORAGE_KEY = 'wiki-graph:size-threshold';
+  const PRUNING_INTENSITY_STORAGE_KEY = 'wiki-graph:pruning-intensity';
 
   function readStoredNumber(key: string, fallback: number): number {
     const raw = globalThis.localStorage?.getItem(key);
@@ -44,6 +52,7 @@
 
   labelThreshold = readStoredNumber(LABEL_THRESHOLD_STORAGE_KEY, labelThreshold);
   sizeThreshold = readStoredNumber(SIZE_THRESHOLD_STORAGE_KEY, sizeThreshold);
+  pruningIntensity = readStoredNumber(PRUNING_INTENSITY_STORAGE_KEY, pruningIntensity);
 
   apiClient.setLang(appState.lang || DEFAULT_LANG);
 
@@ -61,6 +70,7 @@
       labelThreshold,
       sizeThreshold,
       lang: appState.lang,
+      pruningIntensity,
     });
 
     renderer.render();
@@ -75,6 +85,7 @@
 
     renderer.setLabelThreshold(labelThreshold);
     renderer.setSizeThreshold(sizeThreshold);
+    renderer.setPruningIntensity(pruningIntensity);
 
     if (searchQuery) {
       renderer.setSearchQuery(searchQuery);
@@ -135,7 +146,7 @@
           newNodeIds.push(other.id);
         }
 
-        appState.graph!.addLink(nodeId, other.id);
+        appState.graph!.addLink(nodeId, other.id, 5.0);
       });
 
       if (added > 0) {
@@ -144,6 +155,7 @@
 
         detectCommunities(appState.graph.getGraphology());
         runForceAtlas2(appState.graph.getGraphology());
+        bumpGraphVersion();
         initRenderer();
         circlePackAvailable = hasCommunityData(appState.graph.getGraphology());
       } else if (renderer) {
@@ -190,6 +202,7 @@
 
     detectCommunities(appState.graph.getGraphology());
     runForceAtlas2(appState.graph.getGraphology());
+    bumpGraphVersion();
     initRenderer();
     circlePackAvailable = hasCommunityData(appState.graph.getGraphology());
   }
@@ -239,6 +252,22 @@
     if (renderer) renderer.updateGraph();
   }
 
+  // Stats panel
+  function toggleStats() {
+    statsVisible = !statsVisible;
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    // Don't trigger if typing in an input
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) return;
+    if (e.key === 's' || e.key === 'S') {
+      toggleStats();
+    }
+  }
+
+  // Attach keyboard listener
+  globalThis.addEventListener('keydown', handleKeydown);
+
   // Search filter
   function onFilterInput(value: string) {
     searchQuery = value;
@@ -276,6 +305,16 @@
     onSizeThreshold(Number((e.target as HTMLInputElement).value));
   }
 
+  function handlePruningIntensity(e: Event) {
+    onPruningIntensity(Number((e.target as HTMLInputElement).value));
+  }
+
+  function onPruningIntensity(value: number) {
+    pruningIntensity = value;
+    globalThis.localStorage?.setItem(PRUNING_INTENSITY_STORAGE_KEY, String(value));
+    if (renderer) renderer.setPruningIntensity(value);
+  }
+
   // Handle initial query from URL
   if (appState.query) {
     (async () => {
@@ -290,6 +329,8 @@
       sigmaContainer.removeEventListener('navigate', handleNavigate as EventListener);
       sigmaContainer.removeEventListener('expand', handleExpand as EventListener);
     }
+
+    globalThis.removeEventListener('keydown', handleKeydown);
   });
 
   type AppState = typeof appState;
@@ -331,6 +372,14 @@
         on:input={handleSizeThreshold}
         title="Size threshold"
       />
+      <input
+        type="range"
+        min="0"
+        max="100"
+        value={pruningIntensity}
+        on:input={handlePruningIntensity}
+        title="Pruning intensity"
+      />
     </div>
 
     <div class="layout-buttons">
@@ -339,6 +388,9 @@
       </button>
       <button disabled={!circlePackAvailable} on:click={applyCirclePack}>
         CirclePack
+      </button>
+      <button class:active={statsVisible} on:click={toggleStats}>
+        Stats
       </button>
     </div>
 
@@ -366,6 +418,20 @@
 
   {#if aboutVisible}
     <About on:hide={() => (aboutVisible = false)} />
+  {/if}
+
+  <!-- Stats panel -->
+  {#if statsVisible && appState.graph}
+    <div class="stats-panel-container">
+      <GraphStats
+        graph={appState.graph.getGraphology()}
+        graphVersion={appState.graphVersion}
+        searchQuery={searchQuery}
+        sizeThreshold={sizeThreshold}
+        pruningIntensity={pruningIntensity}
+        chapters={appState.chapters}
+      />
+    </div>
   {/if}
 </div>
 
@@ -503,5 +569,21 @@
   .about-links a:hover,
   .about-links .about-link:hover {
     color: #4a9eff;
+  }
+
+  .stats-panel-container {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 200;
+    height: 40vh;
+    min-height: 200px;
+    max-height: 60vh;
+    background: #ffffff;
+    border-top: 1px solid hsl(220, 10%, 88%);
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
+    display: flex;
+    flex-direction: column;
   }
 </style>

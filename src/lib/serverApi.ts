@@ -200,7 +200,8 @@ export function graphToGraphology(graphData: any) {
   // Add edges
   for (const edge of graphData.edges) {
     if (graph.hasNode(edge.source) && graph.hasNode(edge.target)) {
-      graph.addLink(edge.source, edge.target);
+      const pmi = edge.pmi ?? (edge.type === 'wikipedia' ? 5.0 : 0);
+      graph.addLink(edge.source, edge.target, pmi);
     }
   }
 

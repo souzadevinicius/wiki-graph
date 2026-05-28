@@ -59,6 +59,17 @@ _Avoid_: cluster color, group color
 **size threshold**:
 User-adjustable slider that hides nodes below a certain degree, decluttering dense graphs.
 
+**PMI pruning**:
+Edge-based decluttering using Pointwise Mutual Information. A slider from 0% to 100% progressively removes edges ranked by PMI score. 0-20% removes negative PMI edges (coincidental co-occurrence), 20-100% removes positive PMI edges from weakest to strongest. Communities and layout are not recalculated — only edge visibility and node opacity change. Nodes that lose all edges become **orphans** and are rendered dimmed.
+
+**PMI**:
+Pointwise Mutual Information score measuring whether two entities co-occur more than chance would predict. Higher PMI = stronger semantic association. Computed from the raw co-occurrence weight and individual entity frequencies.
+
+**orphan**:
+A node that has no visible edges after PMI pruning. Rendered at low opacity to remain visible but non-distracting: node dot is shrunk to 60% and colored `#e3e3e3`, label text is also dimmed to `#e3e3e3`. Wikipedia edges receive a default PMI of 5.0.
+
+_Avoid_: isolated node, disconnected node
+
 **label threshold**:
 User-adjustable slider that controls the minimum zoom level at which node labels appear. Labels use a fixed font size (10px) independent of node degree — zooming in reveals labels for all nodes, not just hubs.
 
@@ -71,6 +82,8 @@ User-adjustable slider that controls the minimum zoom level at which node labels
 - A backlink has a **backlink depth** of 1 from its expansion anchor.
 - Book entity nodes use their `wikipedia_title` as the expansion anchor for fetching backlinks.
 - **Community** coloring replaces the former **expansion color** concept — nodes are colored by topology, not by which expansion added them. Bridge edges connect separate expansion batches, allowing Louvain to discover topically meaningful communities.
+- **PMI pruning** operates on edges, not nodes. Negative PMI edges (coincidental co-occurrence) are removed first (0-20% slider), then positive PMI edges from weakest to strongest (20-100%). Community detection and layout are not recalculated during pruning.
+- **Orphan** nodes (no visible edges after pruning) are dimmed, not hidden — they remain visible at low opacity.
 
 ## Example dialogue
 
@@ -88,6 +101,12 @@ User-adjustable slider that controls the minimum zoom level at which node labels
 
 > **Dev:** "How many outgoing links do we fetch for bridge-building?"
 > **Domain expert:** "Capped at 10 — prioritizing new nodes with higher degree. We want meaningful bridges without hammering the Wikipedia API."
+
+> **Dev:** "When the user adjusts the PMI pruning slider, do we recalculate communities and layout?"
+> **Domain expert:** "No — we only change edge visibility and node opacity. The original topology stays intact. Orphans are dimmed, not hidden."
+
+> **Dev:** "Do Wikipedia edges get pruned too?"
+> **Domain expert:** "Yes — they're given a default PMI of 5.0, so they survive light pruning but can be removed at aggressive levels."
 
 ## Flagged ambiguities
 

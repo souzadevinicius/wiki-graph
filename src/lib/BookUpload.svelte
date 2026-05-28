@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
   import type { Chapter } from "./serverApi";
+  import { appState } from './state';
 
   const dispatch = createEventDispatcher();
 
@@ -85,6 +86,8 @@
           progressCount = count;
         },
       );
+      // Store chapters globally for stats panel
+      appState.chapters = chapters;
       dispatch("book-graph", graph);
     } catch (e) {
       error = e instanceof Error ? e.message : "Processing failed";

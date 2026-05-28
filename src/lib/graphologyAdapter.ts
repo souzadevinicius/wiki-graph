@@ -6,6 +6,7 @@ export interface NodeData {
   wikipedia_title?: string;
   entity_type?: string;
   mentions?: string[];
+  chapter_ids?: number[];
   community?: number;
   color?: string;
   x?: number;
@@ -35,9 +36,9 @@ export class GraphologyAdapter extends EventEmitter {
     this.emit('changed', [{ changeType: 'add', node: this.getNode(id) }]);
   }
 
-  addLink(source: string, target: string): void {
+  addLink(source: string, target: string, pmi: number = 0): void {
     if (!this.inner.hasDirectedEdge(source, target)) {
-      this.inner.addDirectedEdge(source, target);
+      this.inner.addDirectedEdge(source, target, { pmi });
     }
   }
 
