@@ -12,12 +12,24 @@
   import About from './lib/About.svelte';
   import WikiSearch from './lib/WikiSearch.svelte';
   import GraphStats from './lib/GraphStats.svelte';
+  import EdgePanel from './lib/EdgePanel.svelte';
+  import EdgeTable from './lib/EdgeTable.svelte';
 
   let sigmaContainer: HTMLDivElement;
   let renderer: SigmaRenderer | null = null;
   let aboutVisible = false;
   let statsVisible = false;
   let eventListenersAttached = false;
+  let edgeTableVisible = false;
+
+  // Edge panel state
+  let selectedEdge: {
+    source: string;
+    target: string;
+    pmi: number;
+    weight: number;
+    contextSentences: string[];
+  } | null = null;
 
   // Layout state
   let fa2Running = false;
@@ -175,6 +187,9 @@
 
     // Expand (middle-click)
     sigmaContainer.addEventListener('expand', handleExpand as EventListener);
+
+    // Edge click — show edge panel
+    sigmaContainer.addEventListener('clickEdge', handleEdgeClick as EventListener);
   }
 
   /** Handle search from WikiSearch — add to existing graph. */
@@ -257,11 +272,37 @@
     statsVisible = !statsVisible;
   }
 
+  // Edge table
+  function toggleEdgeTable() {
+    edgeTableVisible = !edgeTableVisible;
+  }
+
+  // Edge panel
+  function handleEdgeClick(e: CustomEvent) {
+    selectedEdge = e.detail;
+  }
+
+  function closeEdgePanel() {
+    selectedEdge = null;
+  }
+
+  function handleEdgeTableSelect(e: CustomEvent) {
+    selectedEdge = e.detail;
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     // Don't trigger if typing in an input
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) return;
     if (e.key === 's' || e.key === 'S') {
       toggleStats();
+    }
+    if (e.key === 'e' || e.key === 'E') {
+      toggleEdgeTable();
+    }
+    if (e.key === 'Escape') {
+      if (selectedEdge) {
+        closeEdgePanel();
+      }
     }
   }
 
@@ -392,6 +433,9 @@
       <button class:active={statsVisible} on:click={toggleStats}>
         Stats
       </button>
+      <button class:active={edgeTableVisible} on:click={toggleEdgeTable}>
+        Edges
+      </button>
     </div>
 
     <label class="summary-toggle">
@@ -432,6 +476,21 @@
         chapters={appState.chapters}
       />
     </div>
+  {/if}
+
+  <!-- Edge table -->
+  {#if edgeTableVisible && appState.graph}
+    <div class="edge-table-container">
+      <EdgeTable
+        graph={appState.graph}
+        on:edge-select={handleEdgeTableSelect}
+      />
+    </div>
+  {/if}
+
+  <!-- Edge detail panel -->
+  {#if selectedEdge}
+    <EdgePanel edgeData={selectedEdge} on:close={closeEdgePanel} />
   {/if}
 </div>
 
@@ -585,5 +644,22 @@
     box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
     display: flex;
     flex-direction: column;
+  }
+
+  .edge-table-container {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 200;
+    height: 40vh;
+    min-height: 200px;
+    max-height: 60vh;
+    background: #ffffff;
+    border-top: 1px solid hsl(220, 10%, 88%);
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 </style>

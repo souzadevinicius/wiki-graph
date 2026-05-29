@@ -274,7 +274,7 @@ export class SigmaRenderer {
         graph.setEdgeAttribute(_edgeId, 'color', sourceColor);
       }
 
-      graph.setEdgeAttribute(_edgeId, 'size', 0.3);
+      graph.setEdgeAttribute(_edgeId, 'size', 0.8);
     });
   }
 
@@ -349,6 +349,25 @@ export class SigmaRenderer {
       const nodeId = this.getNodeId(event);
       this.container.dispatchEvent(new CustomEvent('navigate', { detail: nodeId }));
       event.preventSigmaDefault();
+    });
+
+    // Edge click handler - fire custom event with edge data
+    this.sigma.on('clickEdge', (event: any) => {
+      const edgeId = event.edge;
+      const edgeData = graph.getEdgeAttributes(edgeId) as Record<string, any>;
+      const source = graph.source(edgeId);
+      const target = graph.target(edgeId);
+      this.container.dispatchEvent(new CustomEvent('clickEdge', {
+        detail: {
+          edgeId,
+          source,
+          target,
+          pmi: edgeData.pmi ?? 0,
+          weight: edgeData.weight ?? 0,
+          contextSentences: edgeData.context_sentences || [],
+        },
+      }));
+      this.preventBrowserDefault(event);
     });
 
     // Hover handlers

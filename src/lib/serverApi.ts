@@ -201,9 +201,45 @@ export function graphToGraphology(graphData: any) {
   for (const edge of graphData.edges) {
     if (graph.hasNode(edge.source) && graph.hasNode(edge.target)) {
       const pmi = edge.pmi ?? (edge.type === 'wikipedia' ? 5.0 : 0);
-      graph.addLink(edge.source, edge.target, pmi);
+      const weight = edge.weight ?? 0;
+      const contextSentences = edge.context_sentences || [];
+      graph.addLink(edge.source, edge.target, pmi, weight, contextSentences);
     }
   }
 
   return graph;
+}
+
+/**
+ * Generate an LLM explanation for why two entities are connected.
+ * Uses context sentences to ground the explanation.
+ */
+export async function explainEdge(
+  source: string,
+  target: string,
+  contextSentences: string[],
+): Promise<{ explanation: string; error?: string }> {
+  const response = await fetch("/api/explain-edge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source, target, context_sentences: contextSentences }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json();
+    return { explanation: "", error: err.error || `Request failed: ${response.status}` };
+  }
+
+  const data = await response.json();
+  if (data.error) return { explanation: "", error: data.error };
+  return { explanation: data.explanation };
+}
+
+/**
+ * Generate a cache key for edge explanations (stored in localStorage).
+ */
+export function edgeExplanationKey(source: string, target: string): string {
+  // Deterministic key regardless of edge direction
+  const [a, b] = [source, target].sort();
+  return `edge-explain:${a}|||${b}`;
 }

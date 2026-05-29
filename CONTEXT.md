@@ -24,6 +24,18 @@ _Avoid_: go to, jump to, change root
 
 ### Graph concepts
 
+**edge explanation**:
+A one-sentence LLM-generated summary of why two entities are connected, grounded in their **context sentences**. Generated on-demand when the user clicks an edge; cached in localStorage.
+_Avoid_: edge description, relationship reason, edge summary
+
+**context sentences**:
+Up to 2 representative sentences where two connected entities co-occur, stored alongside each edge. The first is the strongest co-occurrence (same sentence, highest weight); the second comes from a different chapter if available.
+_Avoid_: co-occurrence text, sentence evidence, edge context
+
+**edge table**:
+A tabular view listing all edges with columns: source, target, PMI, weight, truncated context sentence, and an **edge explanation** button.
+_Avoid_: edge list, connection table
+
 **backlink**:
 A Wikipedia page that links to the expansion anchor's Wikipedia article. Fetched via the `linkshere` API.
 _Avoid_: parent, upstream, reference
@@ -75,6 +87,9 @@ User-adjustable slider that controls the minimum zoom level at which node labels
 
 ## Relationships
 
+- An **edge** stores up to 2 **context sentences** that ground its **edge explanation**.
+- An **edge explanation** is generated on-demand from **context sentences** — not pre-computed. It is cached in localStorage but regenerated on page refresh.
+- The **edge table** displays raw **context sentences** inline; the LLM-generated **edge explanation** is only created on explicit user action.
 - A **filter** highlights matching nodes within the current graph; it does not replace it.
 - A **search from Wikipedia** adds new nodes to the existing graph; it does not replace it. After adding, **bridge edges** are created by fetching outgoing links from up to 10 of the most connected new nodes.
 - An **expand** adds **backlinks** to the existing graph; it does not replace it. **Bridge edges** are also created after expansion.
@@ -86,6 +101,12 @@ User-adjustable slider that controls the minimum zoom level at which node labels
 - **Orphan** nodes (no visible edges after pruning) are dimmed, not hidden — they remain visible at low opacity.
 
 ## Example dialogue
+
+> **Dev:** "When a user clicks an edge, do we pre-generate the **edge explanation** during graph building?"
+> **Domain expert:** "No — it's generated on-demand. The **context sentences** are stored with the edge during graph building, but the LLM call only happens when the user clicks. We cache the result in localStorage."
+
+> **Dev:** "How many **context sentences** do we store per edge?"
+> **Domain expert:** "Up to 2 — the strongest co-occurrence first, then one from a different chapter if available. The **edge table** shows the first one truncated inline."
 
 > **Dev:** "When the user types in the search bar, do we fetch a new graph?"
 > **Domain expert:** "No — a **filter** only highlights nodes already in the graph. To add new content, they use **search from Wikipedia**."

@@ -36,9 +36,9 @@ export class GraphologyAdapter extends EventEmitter {
     this.emit('changed', [{ changeType: 'add', node: this.getNode(id) }]);
   }
 
-  addLink(source: string, target: string, pmi: number = 0): void {
+  addLink(source: string, target: string, pmi: number = 0, weight: number = 0, contextSentences: string[] = []): void {
     if (!this.inner.hasDirectedEdge(source, target)) {
-      this.inner.addDirectedEdge(source, target, { pmi });
+      this.inner.addDirectedEdge(source, target, { pmi, weight, context_sentences: contextSentences });
     }
   }
 
