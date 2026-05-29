@@ -243,3 +243,45 @@ export function edgeExplanationKey(source: string, target: string): string {
   const [a, b] = [source, target].sort();
   return `edge-explain:${a}|||${b}`;
 }
+
+/**
+ * Generate an LLM explanation for why a community of nodes is related.
+ * Returns a short label (1-4 words) and a brief explanation.
+ */
+export async function explainCommunity(
+  nodeNames: string[],
+  totalNodes: number,
+  contextSentences: string[],
+): Promise<{ label: string; explanation: string; error?: string }> {
+  const response = await fetch("/api/explain-community", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      node_names: nodeNames,
+      total_nodes: totalNodes,
+      context_sentences: contextSentences,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json();
+    return { label: "", explanation: "", error: err.error || `Request failed: ${response.status}` };
+  }
+
+  const data = await response.json();
+  if (data.error) return { label: "", explanation: "", error: data.error };
+  return { label: data.label, explanation: data.explanation };
+}
+
+/**
+ * Generate a cache key for community explanations (stored in localStorage).
+ * Uses SHA-256 hash of sorted node names for a short, deterministic key.
+ */
+export async function communityExplanationKey(nodeIds: string[]): Promise<string> {
+  const sorted = [...nodeIds].sort();
+  const encoder = new TextEncoder();
+  const data = encoder.encode(sorted.join(","));
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  const hashHex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
+  return `community-explain:${hashHex.slice(0, 16)}`;
+}

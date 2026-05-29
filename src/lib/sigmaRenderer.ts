@@ -10,6 +10,8 @@ export interface SigmaRendererOptions {
   pruningIntensity?: number;
 }
 
+type CommunityId = number | string;
+
 export class SigmaRenderer {
   private sigma: Sigma | null = null;
   private adapter: GraphologyAdapter;
@@ -20,6 +22,7 @@ export class SigmaRenderer {
   private hoveredNode: string | null = null;
   private searchQuery: string = '';
   private pruningIntensity: number = 0;
+  private selectedCommunity: CommunityId | null = null;
 
   constructor(adapter: GraphologyAdapter, options: SigmaRendererOptions) {
     this.adapter = adapter;
@@ -93,6 +96,50 @@ export class SigmaRenderer {
     if (this.sigma) this.sigma.refresh();
   }
 
+  setSelectedCommunity(communityId: CommunityId | null): void {
+    this.selectedCommunity = communityId;
+    this.applyStyles(this.adapter.getGraphology());
+    if (this.sigma) this.sigma.refresh();
+  }
+
+  /** Zoom the camera to the bounding box of a community's nodes. */
+  zoomToCommunity(communityId: CommunityId): void {
+    if (!this.sigma) return;
+    const graph = this.adapter.getGraphology();
+    const nodes = graph.nodes().filter((n) =>
+      String(graph.getNodeAttribute(n, 'community')) === String(communityId)
+    );
+    if (nodes.length === 0) return;
+
+    const positions = nodes
+      .map((n) => ({
+        x: graph.getNodeAttribute(n, 'x') as number,
+        y: graph.getNodeAttribute(n, 'y') as number,
+      }))
+      .filter(({ x, y }) => Number.isFinite(x) && Number.isFinite(y));
+
+    if (positions.length === 0) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    positions.forEach(({ x, y }) => {
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    });
+
+    const nextX = (minX + maxX) / 2;
+    const nextY = (minY + maxY) / 2;
+    if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) return;
+
+    const camera = this.sigma.getCamera();
+    const state = camera.getState();
+    camera.animate(
+      { x: nextX, y: nextY, ratio: state.ratio },
+      { duration: 400 }
+    );
+  }
+
   kill(): void {
     if (this.sigma) {
       this.sigma.kill();
@@ -106,6 +153,8 @@ export class SigmaRenderer {
 
   private applyStyles(graph: Graph): void {
     const dimColor = '#e3e3e3';
+    const communityDimNodeColor = '#d8dee8';
+    const communityDimEdgeColor = '#edf1f7';
     const searchMatches = new Set<string>();
     const searchNeighbors = new Set<string>();
 
@@ -186,6 +235,10 @@ export class SigmaRenderer {
       const isHighlighted = (this.hoveredNode && (isHovered || isNeighbor)) ||
         (this.searchQuery && (matchesSearch || isSearchNeighbor));
 
+      const isCommunitySelected = this.selectedCommunity !== null;
+      const isInSelectedCommunity = isCommunitySelected &&
+        String(attributes.community) === String(this.selectedCommunity);
+
       // Size based on degree, capped so hubs stay readable without dominating.
       const size = Math.min(18, Math.max(2.5, 3 + Math.log1p(degree) * 3));
 
@@ -214,6 +267,23 @@ export class SigmaRenderer {
         graph.setNodeAttribute(nodeId, 'color', matchesSearch ? '#f59e0b' : attributes.community_color || '#4a9eff');
         graph.setNodeAttribute(nodeId, 'labelColor', '#333');
         graph.setNodeAttribute(nodeId, 'size', size);
+      } else if (isCommunitySelected) {
+        if (isInSelectedCommunity) {
+          // Selected community: full color, label visible
+          graph.setNodeAttribute(nodeId, 'label', nodeId);
+          graph.setNodeAttribute(nodeId, 'forceLabel', true);
+          graph.setNodeAttribute(nodeId, 'highlighted', true);
+          graph.setNodeAttribute(nodeId, 'color', attributes.community_color || '#4a9eff');
+          graph.setNodeAttribute(nodeId, 'labelColor', '#333');
+          graph.setNodeAttribute(nodeId, 'size', size * 1.12);
+        } else {
+          // Not in selected community: dimmed so the explained group stays in focus.
+          graph.setNodeAttribute(nodeId, 'color', communityDimNodeColor);
+          graph.setNodeAttribute(nodeId, 'label', '');
+          graph.setNodeAttribute(nodeId, 'forceLabel', false);
+          graph.setNodeAttribute(nodeId, 'highlighted', false);
+          graph.setNodeAttribute(nodeId, 'size', size * 0.65);
+        }
       } else if (this.hoveredNode || this.searchQuery) {
         graph.setNodeAttribute(nodeId, 'color', dimColor);
         graph.setNodeAttribute(nodeId, 'label', '');
@@ -245,6 +315,20 @@ export class SigmaRenderer {
       }
 
       graph.setEdgeAttribute(_edgeId, 'hidden', false);
+
+      // Community selection: dim edges not fully within selected community
+      if (this.selectedCommunity !== null) {
+        const targetAttrs = graph.getNodeAttributes(target) as Record<string, any>;
+        const sourceIn = String(sourceAttrs.community) === String(this.selectedCommunity);
+        const targetIn = String(targetAttrs.community) === String(this.selectedCommunity);
+        if (sourceIn && targetIn) {
+          graph.setEdgeAttribute(_edgeId, 'color', sourceColor);
+        } else {
+          graph.setEdgeAttribute(_edgeId, 'color', communityDimEdgeColor);
+        }
+        graph.setEdgeAttribute(_edgeId, 'size', 0.8);
+        return;
+      }
 
       if (this.hoveredNode) {
         const isNeighborSource = source === this.hoveredNode;
@@ -379,9 +463,10 @@ export class SigmaRenderer {
       this.setHoveredNode(null);
     });
 
-    // Click on background - clear hover
+    // Click on background - clear hover and community selection
     this.sigma.on('clickStage', () => {
       this.setHoveredNode(null);
+      this.setSelectedCommunity(null);
     });
   }
 }

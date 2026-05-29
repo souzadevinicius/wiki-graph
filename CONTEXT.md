@@ -24,6 +24,10 @@ _Avoid_: go to, jump to, change root
 
 ### Graph concepts
 
+**community explanation**:
+A short LLM-generated label (one word or phrase) with a brief explanation of why the nodes in a **community** are topically related. Grounded in the node names and **context sentences** from the community's top 5 edges by weight (falls back to node names only for Wikipedia graphs). Generated on-demand; cached in localStorage.
+_Avoid_: community label, community summary, community description, cluster name
+
 **edge explanation**:
 A one-sentence LLM-generated summary of why two entities are connected, grounded in their **context sentences**. Generated on-demand when the user clicks an edge; cached in localStorage.
 _Avoid_: edge description, relationship reason, edge summary
@@ -99,6 +103,7 @@ User-adjustable slider that controls the minimum zoom level at which node labels
 - **Community** coloring replaces the former **expansion color** concept — nodes are colored by topology, not by which expansion added them. Bridge edges connect separate expansion batches, allowing Louvain to discover topically meaningful communities.
 - **PMI pruning** operates on edges, not nodes. Negative PMI edges (coincidental co-occurrence) are removed first (0-20% slider), then positive PMI edges from weakest to strongest (20-100%). Community detection and layout are not recalculated during pruning.
 - **Orphan** nodes (no visible edges after pruning) are dimmed, not hidden — they remain visible at low opacity.
+- A **community explanation** is generated on-demand from community node names and **context sentences** from the top-5 edges within the community. It is cached in localStorage using a hash of sorted node names. Wikipedia graphs (which lack **context sentences**) fall back to node names only.
 
 ## Example dialogue
 
@@ -128,6 +133,9 @@ User-adjustable slider that controls the minimum zoom level at which node labels
 
 > **Dev:** "Do Wikipedia edges get pruned too?"
 > **Domain expert:** "Yes — they're given a default PMI of 5.0, so they survive light pruning but can be removed at aggressive levels."
+
+> **Dev:** "How does a **community explanation** work?"
+> **Domain expert:** "When the user clicks a community in the floating panel, we highlight that community, zoom to its bounds, and generate a **community explanation** — a short label and one-sentence why. It's grounded in the node names and **context sentences** from the community's top-5 edges. For Wikipedia graphs without context sentences, we fall back to node names only."
 
 ## Flagged ambiguities
 

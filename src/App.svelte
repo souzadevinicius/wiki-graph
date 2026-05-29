@@ -4,7 +4,7 @@
   import { apiClient } from './lib/apiClient';
   import { queryStore } from './lib/store';
   import { SigmaRenderer } from './lib/sigmaRenderer';
-  import { detectCommunities, hasCommunityData } from './lib/communityDetection';
+  import { detectCommunities, hasCommunityData, type CommunitySummary } from './lib/communityDetection';
   import { runForceAtlas2 } from './lib/layouts/forceAtlas2';
   import { runCirclePack } from './lib/layouts/circlePack';
   import { fetchBridgeEdges } from './lib/bridgeBuilder';
@@ -14,6 +14,8 @@
   import GraphStats from './lib/GraphStats.svelte';
   import EdgePanel from './lib/EdgePanel.svelte';
   import EdgeTable from './lib/EdgeTable.svelte';
+  import CommunityPanel from './lib/CommunityPanel.svelte';
+  import CommunityExplanation from './lib/CommunityExplanation.svelte';
 
   let sigmaContainer: HTMLDivElement;
   let renderer: SigmaRenderer | null = null;
@@ -30,6 +32,9 @@
     weight: number;
     contextSentences: string[];
   } | null = null;
+
+  // Community panel state
+  let selectedCommunityForExplanation: CommunitySummary | null = null;
 
   // Layout state
   let fa2Running = false;
@@ -290,6 +295,66 @@
     selectedEdge = e.detail;
   }
 
+  // Community panel
+  function handleCommunityPreview(e: CustomEvent) {
+    const { community } = e.detail;
+    if (!renderer) return;
+
+    renderer.setSelectedCommunity(community.id);
+  }
+
+  function handleCommunityPreviewClear() {
+    if (renderer) renderer.setSelectedCommunity(null);
+  }
+
+  function handleCommunitySelect(e: CustomEvent) {
+    const { community } = e.detail;
+    if (!appState.graph || !renderer) return;
+
+    // Click opens the explanation. Hovering the community panel controls graph highlighting.
+    renderer.zoomToCommunity(community.id);
+
+    // Build context sentences: top-5 edges within community by weight
+    const graph = appState.graph.getGraphology();
+    const communityNodeSet = new Set(community.nodeIds);
+    const communityEdges: Array<{ weight: number; sentences: string[] }> = [];
+
+    graph.forEachEdge((_edgeId, attrs, source, target) => {
+      if (!communityNodeSet.has(source) || !communityNodeSet.has(target)) return;
+      communityEdges.push({
+        weight: (attrs.weight as number) ?? 0,
+        sentences: (attrs.context_sentences as string[]) ?? [],
+      });
+    });
+
+    // Sort by weight descending, collect top-5 context sentences
+    communityEdges.sort((a, b) => b.weight - a.weight);
+    const contextSentences: string[] = [];
+    for (const edge of communityEdges.slice(0, 5)) {
+      for (const sentence of edge.sentences) {
+        if (!contextSentences.includes(sentence)) {
+          contextSentences.push(sentence);
+        }
+        if (contextSentences.length >= 5) break;
+      }
+      if (contextSentences.length >= 5) break;
+    }
+
+    // Attach context sentences to the community object
+    const enriched = { ...community, _contextSentences: contextSentences };
+    selectedCommunityForExplanation = enriched;
+  }
+
+  function handleCommunityClear() {
+    if (renderer) renderer.setSelectedCommunity(null);
+    selectedCommunityForExplanation = null;
+  }
+
+  function closeCommunityExplanation() {
+    selectedCommunityForExplanation = null;
+    if (renderer) renderer.setSelectedCommunity(null);
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     // Don't trigger if typing in an input
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) return;
@@ -302,6 +367,9 @@
     if (e.key === 'Escape') {
       if (selectedEdge) {
         closeEdgePanel();
+      }
+      if (selectedCommunityForExplanation) {
+        closeCommunityExplanation();
       }
     }
   }
@@ -491,6 +559,23 @@
   <!-- Edge detail panel -->
   {#if selectedEdge}
     <EdgePanel edgeData={selectedEdge} on:close={closeEdgePanel} />
+  {/if}
+
+  <!-- Community panel (floating) -->
+  {#if appState.graph && circlePackAvailable}
+    <CommunityPanel
+      graph={appState.graph.getGraphology()}
+      graphVersion={appState.graphVersion}
+      on:preview={handleCommunityPreview}
+      on:previewClear={handleCommunityPreviewClear}
+      on:select={handleCommunitySelect}
+      on:clear={handleCommunityClear}
+    />
+  {/if}
+
+  <!-- Community explanation modal -->
+  {#if selectedCommunityForExplanation}
+    <CommunityExplanation community={selectedCommunityForExplanation} on:close={closeCommunityExplanation} />
   {/if}
 </div>
 

@@ -71,3 +71,44 @@ export function hasCommunityData(graph: Graph): boolean {
   });
   return hasCommunity;
 }
+
+export interface CommunitySummary {
+  id: number;
+  color: string;
+  nodeIds: string[];
+  nodeCount: number;
+}
+
+/**
+ * Extract community summaries from the graph: community ID, color, node IDs, and count.
+ */
+export function getCommunitySummaries(graph: Graph): CommunitySummary[] {
+  const groups = new Map<number, string[]>();
+  const colors = new Map<number, string>();
+
+  graph.forEachNode((nodeId, attributes) => {
+    const community = attributes.community as number | undefined;
+    if (community === undefined) return;
+
+    if (!groups.has(community)) {
+      groups.set(community, []);
+      const color = attributes.community_color as string | undefined;
+      if (color) colors.set(community, color);
+    }
+    groups.get(community)!.push(nodeId);
+  });
+
+  const summaries: CommunitySummary[] = [];
+  groups.forEach((nodeIds, id) => {
+    summaries.push({
+      id,
+      color: colors.get(id) || '#4a9eff',
+      nodeIds,
+      nodeCount: nodeIds.length,
+    });
+  });
+
+  // Sort by node count descending so larger communities appear first
+  summaries.sort((a, b) => b.nodeCount - a.nodeCount);
+  return summaries;
+}
