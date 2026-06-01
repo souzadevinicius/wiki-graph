@@ -18,6 +18,20 @@ Note on APIs:
 - autocomplete uses [MediaWiki Action API](https://www.mediawiki.org/wiki/API:Main_page)
 - edges represent relations in terms of this [method](https://en.wikipedia.org/api/rest_v1/#/Page%20content/getRelatedPages) (Wikimedia REST API)
 
+## Development
+
+```bash
+npm install
+npm run dev
+```
+
+## Testing
+
+```bash
+npm test        # Run once
+npm run test:watch  # Watch mode
+```
+
 ## License
 
 [MIT](./LICENSE) License © 2024 [Vinícius de Souza](https://github.com/souzadevinicius)

@@ -97,49 +97,75 @@ export class SigmaRenderer {
   }
 
   setSelectedCommunity(communityId: CommunityId | null): void {
+    console.log('[setSelectedCommunity] setting to:', communityId, 'type:', typeof communityId);
     this.selectedCommunity = communityId;
     this.applyStyles(this.adapter.getGraphology());
     if (this.sigma) this.sigma.refresh();
+
+    // Debug: count hidden nodes
+    const g = this.adapter.getGraphology();
+    let hiddenCount = 0, visibleCount = 0;
+    g.forEachNode((id, attrs) => {
+      if (attrs.hidden) hiddenCount++; else visibleCount++;
+    });
+    console.log('[setSelectedCommunity] hidden:', hiddenCount, 'visible:', visibleCount, 'total:', g.order);
   }
 
   /** Zoom the camera to the bounding box of a community's nodes. */
-  zoomToCommunity(communityId: CommunityId): void {
-    if (!this.sigma) return;
-    const graph = this.adapter.getGraphology();
-    const nodes = graph.nodes().filter((n) =>
-      String(graph.getNodeAttribute(n, 'community')) === String(communityId)
-    );
-    if (nodes.length === 0) return;
+zoomToCommunity(communityId: CommunityId): void {
+  if (!this.sigma) return;
+  const graph = this.adapter.getGraphology();
 
-    const positions = nodes
-      .map((n) => ({
-        x: graph.getNodeAttribute(n, 'x') as number,
-        y: graph.getNodeAttribute(n, 'y') as number,
-      }))
-      .filter(({ x, y }) => Number.isFinite(x) && Number.isFinite(y));
+  const nodes = graph.nodes().filter((n) =>
+    String(graph.getNodeAttribute(n, 'community')) === String(communityId)
+  );
+  if (nodes.length === 0) return;
 
-    if (positions.length === 0) return;
+  const positions = nodes
+    .map((n) => ({
+      x: graph.getNodeAttribute(n, 'x') as number,
+      y: graph.getNodeAttribute(n, 'y') as number,
+    }))
+    .filter(({ x, y }) => Number.isFinite(x) && Number.isFinite(y));
+  if (positions.length === 0) return;
 
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    positions.forEach(({ x, y }) => {
-      minX = Math.min(minX, x);
-      maxX = Math.max(maxX, x);
-      minY = Math.min(minY, y);
-      maxY = Math.max(maxY, y);
-    });
-
-    const nextX = (minX + maxX) / 2;
-    const nextY = (minY + maxY) / 2;
-    if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) return;
-
-    const camera = this.sigma.getCamera();
-    const state = camera.getState();
-    camera.animate(
-      { x: nextX, y: nextY, ratio: state.ratio },
-      { duration: 400 }
-    );
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const { x, y } of positions) {
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
   }
 
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+
+  // Sigma stores nodes in a normalized [0,1] coordinate space internally.
+  // The normalization function tells us how graph coords map to that space.
+  const normalize = this.sigma.normalizationFunction;
+  const normalizedCenter = normalize({ x: centerX, y: centerY });
+
+  // To get the right ratio, find how large the community is in normalized space.
+  const corners = [
+    normalize({ x: minX, y: minY }),
+    normalize({ x: maxX, y: maxY }),
+  ];
+  const normalizedSpan = Math.max(
+    Math.abs(corners[1].x - corners[0].x),
+    Math.abs(corners[1].y - corners[0].y),
+    0.001
+  );
+
+  // Camera ratio in Sigma = normalized units per pixel.
+  // To fill the viewport with the community + padding:
+  const { width, height } = this.sigma.getDimensions();
+  const viewportSize = Math.min(width, height);
+  const padding = 500;
+  const ratio = (normalizedSpan * padding) / viewportSize;
+
+  this.sigma.getCamera().animate(
+    { x: normalizedCenter.x, y: normalizedCenter.y, ratio },
+    { duration: 400 }
+  );
+}
   kill(): void {
     if (this.sigma) {
       this.sigma.kill();
@@ -242,8 +268,9 @@ export class SigmaRenderer {
       // Size based on degree, capped so hubs stay readable without dominating.
       const size = Math.min(18, Math.max(2.5, 3 + Math.log1p(degree) * 3));
 
-      // Check size threshold
-      if (degree < this.sizeThreshold || !isSearchRelevant) {
+      // Check size threshold. A selected community should remain inspectable
+      // even when the global degree threshold would normally hide its nodes.
+      if ((degree < this.sizeThreshold && !isInSelectedCommunity) || !isSearchRelevant) {
         graph.setNodeAttribute(nodeId, 'hidden', true);
         graph.setNodeAttribute(nodeId, 'forceLabel', false);
         graph.setNodeAttribute(nodeId, 'highlighted', false);
@@ -315,6 +342,15 @@ export class SigmaRenderer {
       }
 
       graph.setEdgeAttribute(_edgeId, 'hidden', false);
+
+      // Chronological layout: dim cross-sentence edges
+      const isSameRow = _attrs._chronoSameRow === true;
+      const isChrono = _attrs._chronoSameRow !== undefined;
+      if (isChrono && !isSameRow) {
+        graph.setEdgeAttribute(_edgeId, 'color', 'rgba(180, 180, 180, 0.3)');
+        graph.setEdgeAttribute(_edgeId, 'size', 0.4);
+        return;
+      }
 
       // Community selection: dim edges not fully within selected community
       if (this.selectedCommunity !== null) {
@@ -463,10 +499,11 @@ export class SigmaRenderer {
       this.setHoveredNode(null);
     });
 
-    // Click on background - clear hover and community selection
+    // Click on background - clear transient hover only. Community selection is
+    // controlled by the community panel and explanation modal.
     this.sigma.on('clickStage', () => {
+      console.log('[clickStage] clearing hover');
       this.setHoveredNode(null);
-      this.setSelectedCommunity(null);
     });
   }
 }

@@ -190,6 +190,7 @@ export function graphToGraphology(graphData: any) {
       thumbnail: null,
       extract_html: null,
       chapter_ids: entity.chapter_ids || [],
+      first_sentence_idx: entity.first_sentence_idx,
       // Community data from backend
       community: entity.community,
       community_color: entity.community_color,
@@ -279,9 +280,22 @@ export async function explainCommunity(
  */
 export async function communityExplanationKey(nodeIds: string[]): Promise<string> {
   const sorted = [...nodeIds].sort();
+  const keySource = sorted.join(",");
+  const subtle = globalThis.crypto?.subtle;
+
+  if (!subtle) {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < keySource.length; i += 1) {
+      hash ^= keySource.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+
+    return `community-explain:${(hash >>> 0).toString(16).padStart(8, "0")}`;
+  }
+
   const encoder = new TextEncoder();
-  const data = encoder.encode(sorted.join(","));
-  const hash = await crypto.subtle.digest("SHA-256", data);
+  const data = encoder.encode(keySource);
+  const hash = await subtle.digest("SHA-256", data);
   const hashHex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
   return `community-explain:${hashHex.slice(0, 16)}`;
 }

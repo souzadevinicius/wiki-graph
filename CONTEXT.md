@@ -63,6 +63,10 @@ Force-directed layout algorithm that arranges nodes based on graph topology. Tun
 **CirclePack**:
 Hierarchical layout that packs **community** groups into nested circles. Available for any graph with **community** data (both book entity and Wikipedia graphs).
 
+**Chronological**:
+Top-down temporal layout for book entity graphs. Y-axis maps to sentence order: each entity is placed at the sentence index of its first appearance (`first_sentence_idx`). Row height is dynamic, scaled to fill viewport height (clamped between 30px and 80px minimum). Empty sentences are skipped (Y is compressed to unique values). X-axis is force-directed horizontally (Y locked): row-local repulsion prevents overlap, temporal-weighted attraction (exponential decay by row distance) clusters connected nodes without creating cross-chapter spaghetti. Wikipedia nodes (no `first_sentence_idx`) snap to the nearest occupied row. Same-sentence edges render as flat lines; cross-sentence edges render as curved arcs with alternating curvature (prevents overlap) and are dimmed for visual emphasis on temporal locality. Nodes retain **community color**. 200 fixed iterations, static after computation, instant render. The layout button is disabled for Wikipedia-only graphs.
+_Avoid_: timeline, year layout, temporal layout
+
 ### Visual
 
 **degree-based sizing**:
@@ -104,6 +108,10 @@ User-adjustable slider that controls the minimum zoom level at which node labels
 - **PMI pruning** operates on edges, not nodes. Negative PMI edges (coincidental co-occurrence) are removed first (0-20% slider), then positive PMI edges from weakest to strongest (20-100%). Community detection and layout are not recalculated during pruning.
 - **Orphan** nodes (no visible edges after pruning) are dimmed, not hidden — they remain visible at low opacity.
 - A **community explanation** is generated on-demand from community node names and **context sentences** from the top-5 edges within the community. It is cached in localStorage using a hash of sorted node names. Wikipedia graphs (which lack **context sentences**) fall back to node names only.
+- **Chronological** layout is only available for book entity graphs (which have `first_sentence_idx`). It is disabled for Wikipedia-only graphs.
+- In **Chronological** layout, an entity is placed at its first sentence appearance (`first_sentence_idx`), not at every sentence it appears in.
+- In **Chronological** layout, Wikipedia backlinks snap to the nearest occupied row (not fractional Y between rows).
+- In **Chronological** layout, same-sentence edges are flat lines. Cross-sentence edges are curved with alternating curvature (prevents overlap) and are rendered dimmer to emphasize temporal locality. Nodes retain **community color** — sentence is already encoded by Y position.
 
 ## Example dialogue
 
@@ -137,8 +145,20 @@ User-adjustable slider that controls the minimum zoom level at which node labels
 > **Dev:** "How does a **community explanation** work?"
 > **Domain expert:** "When the user clicks a community in the floating panel, we highlight that community, zoom to its bounds, and generate a **community explanation** — a short label and one-sentence why. It's grounded in the node names and **context sentences** from the community's top-5 edges. For Wikipedia graphs without context sentences, we fall back to node names only."
 
+> **Dev:** "In **Chronological** layout, where does a Wikipedia backlink go?"
+> **Domain expert:** "It snaps to the nearest occupied row. If you expanded Jamie Bartlett at sentence 42, the backlink sits on row 42, not floating between rows."
+
+> **Dev:** "Are cross-sentence edges styled the same as same-sentence edges?"
+> **Domain expert:** "No — same-sentence edges are flat lines. Cross-sentence edges are curved arcs with alternating curvature to prevent overlap. They're also dimmed so the reader's eye focuses on temporal locality first."
+
+> **Dev:** "Does an entity appear in every sentence it's mentioned in?"
+> **Domain expert:** "No — one node per entity, placed at its first sentence appearance. If it appears in sentences 42, 45, 100, 200, and 350, the node sits at row 42."
+
+> **Dev:** "Are edges styled differently in **Chronological**?"
+> **Domain expert:** "Same-sentence edges are flat lines. Cross-sentence edges are curved arcs with alternating curvature to prevent overlap, and they're dimmed for visual emphasis on temporal locality. Nodes keep their **community color** — sentence is already encoded by Y position."
+
 ## Flagged ambiguities
 
 - "search" was used to mean both **filter** (highlight) and **navigate** (replace graph). Resolved: these are distinct. Filter is the default search bar behavior; navigate is triggered by double-click.
-- "year layout" was considered but dropped — neither Wikipedia graphs nor book entity graphs have temporal attributes that would make a timeline layout meaningful.
+- "year layout" was considered but dropped — revisited: book entities do have `chapter_ids` (temporal data), so a temporal layout is viable. Renamed to **Chronological** to distinguish from a year-based axis (which doesn't apply here).
 - "springLength" and "gravity" from the old boid layout are replaced by ForceAtlas2's internal parameters, which are hidden from the user.

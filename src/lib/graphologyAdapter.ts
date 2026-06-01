@@ -7,6 +7,7 @@ export interface NodeData {
   entity_type?: string;
   mentions?: string[];
   chapter_ids?: number[];
+  first_sentence_idx?: number;
   community?: number;
   color?: string;
   x?: number;

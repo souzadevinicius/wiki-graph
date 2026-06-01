@@ -12,7 +12,11 @@
 
   // Reactive: recompute when graph changes
   $: graphVersion;
-  $: communities = getCommunitySummaries(graph);
+  let communities: CommunitySummary[] = [];
+  $: {
+    communities = getCommunitySummaries(graph);
+    console.log('[CommunityPanel] recomputed:', communities.length, 'communities', communities.map(c => `${c.id}:${c.nodeCount}`).join(', '));
+  }
 
   function toggle() {
     visible = !visible;
@@ -35,8 +39,13 @@
   }
 </script>
 
-<div class="community-panel-wrapper">
-  <button class="community-toggle-btn" on:click={toggle} class:active={visible} aria-label="Toggle communities panel">
+<div
+  class="community-panel-wrapper"
+  on:pointerdown|stopPropagation
+  on:pointerup|stopPropagation
+  on:click|stopPropagation
+>
+  <button class="community-toggle-btn" on:click|stopPropagation={toggle} class:active={visible} aria-label="Toggle communities panel">
     Communities
   </button>
 
@@ -44,14 +53,14 @@
     <div class="community-panel" role="list" aria-label="Communities">
       <div class="community-panel-header">
         <span class="title">Communities ({communities.length})</span>
-        <button class="close-btn" on:click={handleClear} aria-label="Clear selection">✕</button>
+        <button class="close-btn" on:click|stopPropagation={handleClear} aria-label="Clear selection">✕</button>
       </div>
       <div class="community-list">
         {#each communities as community (community.id)}
           <button
             class="community-item"
             role="listitem"
-            on:click={() => handleCommunityClick(community)}
+            on:click|stopPropagation={() => handleCommunityClick(community)}
             on:mouseenter={() => handleCommunityHover(community)}
             on:mouseleave={handleCommunityLeave}
             on:focus={() => handleCommunityHover(community)}

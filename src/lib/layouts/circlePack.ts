@@ -24,6 +24,12 @@ export function runCirclePack(
 ): void {
   const { padding = 5, radius = 500 } = options;
 
+  // Clear chronological layout attributes
+  graph.forEachEdge((edgeId) => {
+    graph.setEdgeAttribute(edgeId, '_chronoSameRow', undefined);
+    graph.setEdgeAttribute(edgeId, 'curvature', 0);
+  });
+
   // Group nodes by community
   const communityGroups = new Map<number, string[]>();
   const nodeMasses = new Map<string, number>();

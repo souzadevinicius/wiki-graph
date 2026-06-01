@@ -17,6 +17,12 @@ export function runForceAtlas2(
 ): void {
   const { iterations = 200 } = options;
 
+  // Clear chronological layout attributes
+  graph.forEachEdge((edgeId) => {
+    graph.setEdgeAttribute(edgeId, '_chronoSameRow', undefined);
+    graph.setEdgeAttribute(edgeId, 'curvature', 0);
+  });
+
   // Set initial random positions if not present
   graph.forEachNode((nodeId, attributes) => {
     if (!Number.isFinite(attributes.x) || !Number.isFinite(attributes.y)) {

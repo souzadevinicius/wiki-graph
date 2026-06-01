@@ -53,6 +53,11 @@ export function detectCommunities(graph: Graph): CommunityResult {
     nodeColors.set(nodeId, color);
   });
 
+  // Debug: log community distribution
+  const dist = new Map<number, number>();
+  communities.forEach((comm) => dist.set(comm, (dist.get(comm) || 0) + 1));
+  console.log('[detectCommunities] communities:', Array.from(dist.entries()).map(([k,v]) => `${k}:${v}`).join(', '));
+
   return {
     communities,
     nodeColors,

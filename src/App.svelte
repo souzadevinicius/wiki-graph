@@ -7,6 +7,7 @@
   import { detectCommunities, hasCommunityData, type CommunitySummary } from './lib/communityDetection';
   import { runForceAtlas2 } from './lib/layouts/forceAtlas2';
   import { runCirclePack } from './lib/layouts/circlePack';
+  import { runChronological, hasTemporalData } from './lib/layouts/chronological';
   import { fetchBridgeEdges } from './lib/bridgeBuilder';
   import BookUpload from './lib/BookUpload.svelte';
   import About from './lib/About.svelte';
@@ -39,6 +40,7 @@
   // Layout state
   let fa2Running = false;
   let circlePackAvailable = false;
+  let chronologicalAvailable = false;
 
   function bumpGraphVersion() {
     appState.graphVersion += 1;
@@ -254,6 +256,7 @@
 
     initRenderer();
     circlePackAvailable = true;
+    chronologicalAvailable = hasTemporalData(graph.getGraphology());
   }
 
   // Layout controls
@@ -269,6 +272,13 @@
   function applyCirclePack() {
     if (!appState.graph || !circlePackAvailable) return;
     runCirclePack(appState.graph.getGraphology());
+    if (renderer) renderer.updateGraph();
+  }
+
+  function applyChronological() {
+    if (!appState.graph || !chronologicalAvailable) return;
+    const viewportHeight = sigmaContainer?.getBoundingClientRect().height ?? 600;
+    runChronological(appState.graph.getGraphology(), { viewportHeight });
     if (renderer) renderer.updateGraph();
   }
 
@@ -304,14 +314,16 @@
   }
 
   function handleCommunityPreviewClear() {
+    if (selectedCommunityForExplanation) return;
     if (renderer) renderer.setSelectedCommunity(null);
   }
 
   function handleCommunitySelect(e: CustomEvent) {
     const { community } = e.detail;
-    if (!appState.graph || !renderer) return;
+    if (!appState.graph || !renderer) { console.error('[handleCommunitySelect] no graph or renderer'); return; }
 
     // Click opens the explanation. Hovering the community panel controls graph highlighting.
+    renderer.setSelectedCommunity(community.id);
     renderer.zoomToCommunity(community.id);
 
     // Build context sentences: top-5 edges within community by weight
@@ -497,6 +509,9 @@
       </button>
       <button disabled={!circlePackAvailable} on:click={applyCirclePack}>
         CirclePack
+      </button>
+      <button disabled={!chronologicalAvailable} on:click={applyChronological}>
+        Chronological
       </button>
       <button class:active={statsVisible} on:click={toggleStats}>
         Stats
